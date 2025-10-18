@@ -119,8 +119,8 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
 
   return (
     <div
-      className="w-full aspect-video rounded-sm p-12 flex items-center justify-center overflow-hidden bg-cover bg-center"
-      style={backgroundStyle}
+      className="aspect-video rounded-sm p-12 flex items-center justify-center overflow-hidden bg-cover bg-center"
+      style={{ ...backgroundStyle, width: '90%' }}
     >
       <canvas
         ref={canvasRef}

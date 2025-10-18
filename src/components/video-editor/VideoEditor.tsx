@@ -82,16 +82,18 @@ export default function VideoEditor() {
         <div className="flex flex-col gap-6 flex-1">
           {videoPath && (
             <>
-              <VideoPlayback
-                ref={videoPlaybackRef}
-                videoPath={videoPath}
-                isSeeking={isSeeking}
-                onDurationChange={setDuration}
-                onTimeUpdate={setCurrentTime}
-                onPlayStateChange={setIsPlaying}
-                onError={setError}
-                wallpaper={wallpaper}
-              />
+              <div className="flex justify-center w-full">
+                <VideoPlayback
+                  ref={videoPlaybackRef}
+                  videoPath={videoPath}
+                  isSeeking={isSeeking}
+                  onDurationChange={setDuration}
+                  onTimeUpdate={setCurrentTime}
+                  onPlayStateChange={setIsPlaying}
+                  onError={setError}
+                  wallpaper={wallpaper}
+                />
+              </div>
               <PlaybackControls
                 isPlaying={isPlaying}
                 currentTime={currentTime}
