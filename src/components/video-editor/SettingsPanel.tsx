@@ -88,8 +88,8 @@ export function SettingsPanel({ selected, onWallpaperChange, selectedZoomDepth, 
                   "duration-150 ease-in-out",
                   zoomEnabled ? "opacity-100" : "opacity-60",
                   isActive
-                    ? "border-[#7c3aed] bg-white text-black shadow-[#7c3aed]/20 scale-105"
-                    : "border-[#23232a] bg-[#23232a] text-slate-200 hover:border-[#7c3aed] hover:scale-105"
+                    ? "border-[#34B27B] bg-white text-black shadow-[#34B27B]/20 scale-105"
+                    : "border-[#23232a] bg-[#23232a] text-slate-200 hover:border-[#34B27B] hover:scale-105"
                 )}
                 style={isActive ? { background: '#fff', color: '#111' } : undefined}
               >
@@ -106,7 +106,7 @@ export function SettingsPanel({ selected, onWallpaperChange, selectedZoomDepth, 
             onClick={handleDeleteClick}
             variant="destructive"
             size="sm"
-            className="mt-3 w-full gap-2 bg-[#7c3aed] text-white border-none hover:bg-[#a78bfa]"
+            className="mt-3 w-full gap-2 bg-[#34B27B] text-white border-none hover:bg-[#34B27B]/80"
           >
             <Trash2 className="w-4 h-4" />
             Delete Zoom
@@ -135,7 +135,7 @@ export function SettingsPanel({ selected, onWallpaperChange, selectedZoomDepth, 
         <Button
           onClick={() => setShowCropDropdown(!showCropDropdown)}
           variant="outline"
-          className="w-full gap-2 bg-[#23232a] text-slate-200 border-none"
+          className="w-full gap-2 bg-[#23232a] text-slate-200 border-none hover:border-[#34B27B]"
         >
           <Crop className="w-4 h-4" />
           Crop Video
@@ -148,7 +148,7 @@ export function SettingsPanel({ selected, onWallpaperChange, selectedZoomDepth, 
             className="fixed inset-0 bg-black/80 backdrop-blur-sm z-40 animate-in fade-in duration-200"
             onClick={() => setShowCropDropdown(false)}
           />
-          <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50 bg-[#23232a] rounded-2xl shadow-2xl border border-[#312e81] p-8 w-[90vw] max-w-5xl animate-in zoom-in-95 duration-200">
+          <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50 bg-[#23232a] rounded-2xl shadow-2xl border border-[#34B27B] p-8 w-[90vw] max-w-5xl animate-in zoom-in-95 duration-200">
             <div className="flex items-center justify-between mb-6">
               <div>
                 <span className="text-xl font-bold text-slate-200">Crop Video</span>
@@ -158,7 +158,7 @@ export function SettingsPanel({ selected, onWallpaperChange, selectedZoomDepth, 
                 variant="ghost"
                 size="icon"
                 onClick={() => setShowCropDropdown(false)}
-                className="hover:bg-[#312e81] text-slate-200"
+                className="hover:bg-[#34B27B]/20 text-slate-200"
               >
                 <X className="w-5 h-5" />
               </Button>
@@ -194,8 +194,8 @@ export function SettingsPanel({ selected, onWallpaperChange, selectedZoomDepth, 
                 className={cn(
                   "aspect-square rounded-lg border-2 overflow-hidden cursor-pointer transition-all w-16 h-16",
                   selected === path
-                    ? "border-[#7c3aed] ring-1 ring-[#7c3aed] scale-105"
-                    : "border-[#23232a] hover:border-[#7c3aed] hover:scale-105"
+                    ? "border-[#34B27B] ring-1 ring-[#34B27B] scale-105"
+                    : "border-[#23232a] hover:border-[#34B27B] hover:scale-105"
                 )}
                 style={{ backgroundImage: `url(${path})`, backgroundSize: "cover", backgroundPosition: "center" }}
                 aria-label={`Wallpaper ${idx + 1}`}
@@ -226,7 +226,7 @@ export function SettingsPanel({ selected, onWallpaperChange, selectedZoomDepth, 
                 key={g}
                 className={cn(
                   "aspect-square rounded-lg border-2 overflow-hidden cursor-pointer transition-all w-16 h-16",
-                  gradient === g ? "border-[#7c3aed] ring-1 ring-[#7c3aed] scale-105" : "border-[#23232a] hover:border-[#7c3aed] hover:scale-105"
+                  gradient === g ? "border-[#34B27B] ring-1 ring-[#34B27B] scale-105" : "border-[#23232a] hover:border-[#34B27B] hover:scale-105"
                 )}
                 style={{ background: g }}
                 aria-label={`Gradient ${idx + 1}`}
@@ -241,7 +241,7 @@ export function SettingsPanel({ selected, onWallpaperChange, selectedZoomDepth, 
           <Button
             type="button"
             size="lg"
-            className="w-full py-5 text-lg flex items-center justify-center gap-3 bg-[#7c3aed] text-white rounded-xl shadow-lg hover:bg-[#a78bfa] transition-all"
+            className="w-full py-5 text-lg flex items-center justify-center gap-3 bg-[#34B27B] text-white rounded-xl shadow-lg hover:bg-[#34B27B]/80 transition-all"
           >
             <Download className="w-6 h-6" />
             <span className="text-lg">Export Video</span>

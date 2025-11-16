@@ -267,8 +267,8 @@ function TimelineAxis({
                   width: '5px',
                   height: '5px',
                   borderRadius: '50%',
-                  backgroundColor: marker.time === currentTimeMs ? '#7c3aed' : '#94a3b8',
-                  boxShadow: marker.time === currentTimeMs ? '0 0 4px #7c3aed55' : 'none',
+                  backgroundColor: marker.time === currentTimeMs ? '#34B27B' : '#94a3b8',
+                  boxShadow: marker.time === currentTimeMs ? '0 0 4px #34B27B55' : 'none',
                   marginRight: '5px',
                   marginTop: '2px',
                   transition: 'background 0.2s, box-shadow 0.2s',
@@ -277,10 +277,10 @@ function TimelineAxis({
               <span
                 style={{
                   fontWeight: marker.time === currentTimeMs ? 700 : 500,
-                  color: marker.time === currentTimeMs ? '#7c3aed' : '#94a3b8',
+                  color: marker.time === currentTimeMs ? '#34B27B' : '#94a3b8',
                   fontSize: '11px',
                   letterSpacing: '-0.5px',
-                  textShadow: marker.time === currentTimeMs ? '0 1px 6px #7c3aed33' : 'none',
+                  textShadow: marker.time === currentTimeMs ? '0 1px 6px #34B27B33' : 'none',
                   marginTop: '2px',
                 }}
                 className="select-none"
@@ -486,12 +486,12 @@ export default function TimelineEditor({
         <div className="flex-1" />
         <div className="flex items-center gap-3 text-[10px] text-slate-400 font-medium">
           <span className="flex items-center gap-1">
-            <kbd className="px-1.5 py-0.5 bg-[#23232a] border border-[#312e81] rounded text-slate-300">Command + Shift + Scroll</kbd>
+            <kbd className="px-1.5 py-0.5 bg-[#23232a]  rounded text-slate-300">Command + Shift + Scroll</kbd>
             <span>Pan</span>
           </span>
           <span className="text-slate-600">•</span>
           <span className="flex items-center gap-1">
-            <kbd className="px-1.5 py-0.5 bg-[#23232a] border border-[#312e81] rounded text-slate-300">Command + Scroll</kbd>
+            <kbd className="px-1.5 py-0.5 bg-[#23232a]  rounded text-slate-300">Command + Scroll</kbd>
             <span>Zoom</span>
           </span>
         </div>

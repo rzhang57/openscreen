@@ -34,7 +34,7 @@ export default function Item({ id, span, rowId, isSelected = false, onSelect }: 
             "w-full overflow-hidden flex items-center justify-center transition-all duration-150 cursor-grab active:cursor-grabbing group relative",
             glassStyles.glassPurple
           )}
-          style={{ height: 60 }}
+          style={{ height: 48 }}
           onClick={(event) => {
             event.stopPropagation();
             onSelect?.();

@@ -53,7 +53,7 @@ export default function PlaybackControls({
         step="0.01"
         className="flex-1 h-2 rounded-full transition-all duration-[33ms] custom-playback-range"
         style={{
-          background: `linear-gradient(to right, #7c3aed 0%, #7c3aed ${(currentTime / duration) * 100}%, #23232a ${(currentTime / duration) * 100}%, #23232a 100%)`,
+          background: `linear-gradient(to right, #34B27B 0%, #34B27B ${(currentTime / duration) * 100}%, #23232a ${(currentTime / duration) * 100}%, #23232a 100%)`,
         }}
       />
       <span className="text-xs text-slate-400 font-mono">

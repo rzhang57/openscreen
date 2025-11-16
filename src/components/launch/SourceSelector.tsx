@@ -72,8 +72,8 @@ export function SourceSelector() {
       <div className="flex-1 flex flex-col w-full max-w-xl" style={{ padding: 0 }}>
         <Tabs defaultValue="screens">
           <TabsList className="grid grid-cols-2 mb-3 bg-zinc-900/40 rounded-full">
-            <TabsTrigger value="screens" className="data-[state=active]:bg-violet-700 data-[state=active]:text-white text-zinc-200 rounded-full text-xs py-1">Screens</TabsTrigger>
-            <TabsTrigger value="windows" className="data-[state=active]:bg-violet-700 data-[state=active]:text-white text-zinc-200 rounded-full text-xs py-1">Windows</TabsTrigger>
+            <TabsTrigger value="screens" className="data-[state=active]:bg-[#34B27B] data-[state=active]:text-white text-zinc-200 rounded-full text-xs py-1">Screens</TabsTrigger>
+            <TabsTrigger value="windows" className="data-[state=active]:bg-[#34B27B] data-[state=active]:text-white text-zinc-200 rounded-full text-xs py-1">Windows</TabsTrigger>
           </TabsList>
             <div className="h-60 flex flex-col justify-stretch">
             <TabsContent value="screens" className="h-full">
@@ -94,7 +94,7 @@ export function SourceSelector() {
                         />
                         {selectedSource?.id === source.id && (
                           <div className="absolute -top-1 -right-1">
-                            <div className="w-4 h-4 bg-blue-600 rounded-full flex items-center justify-center shadow-md">
+                            <div className="w-4 h-4 bg-[#34B27B] rounded-full flex items-center justify-center shadow-md">
                               <MdCheck className={styles.icon} />
                             </div>
                           </div>
@@ -153,7 +153,7 @@ export function SourceSelector() {
       <div className="border-t border-zinc-800 p-2 w-full max-w-xl">
         <div className="flex justify-center gap-2">
           <Button variant="outline" onClick={() => window.close()} className="px-4 py-1 text-xs bg-zinc-800 border-zinc-700 text-zinc-200 hover:bg-zinc-700">Cancel</Button>
-          <Button onClick={handleShare} disabled={!selectedSource} className="px-4 py-1 text-xs bg-violet-700 text-white hover:bg-violet-800 disabled:opacity-50 disabled:bg-zinc-700">Share</Button>
+          <Button onClick={handleShare} disabled={!selectedSource} className="px-4 py-1 text-xs bg-[#34B27B] text-white hover:bg-[#34B27B]/80 disabled:opacity-50 disabled:bg-zinc-700">Share</Button>
         </div>
       </div>
     </div>
