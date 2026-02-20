@@ -7,7 +7,7 @@ import path from "node:path";
 import fs$1 from "node:fs/promises";
 import fs from "node:fs";
 import { createRequire } from "node:module";
-import { spawn } from "node:child_process";
+import { spawnSync, spawn } from "node:child_process";
 const __dirname$2 = path.dirname(fileURLToPath(import.meta.url));
 const APP_ROOT = path.join(__dirname$2, "..");
 const VITE_DEV_SERVER_URL$1 = process.env["VITE_DEV_SERVER_URL"];
@@ -567,6 +567,92 @@ class NativeCaptureService {
       return { success: false, message: this.statusMessage };
     }
   }
+  async getEncoderOptions(ffmpegPath) {
+    var _a;
+    const ffmpegFallback = this.getEncoderOptionsFromFfmpeg(ffmpegPath);
+    const boot = await this.ensureProcess();
+    if (!boot.success) {
+      return {
+        success: ffmpegFallback.success,
+        options: ffmpegFallback.options,
+        message: boot.message || ffmpegFallback.message
+      };
+    }
+    try {
+      const response = await this.sendRequest({
+        id: this.nextId("get-encoder-options"),
+        cmd: "get_encoder_options",
+        payload: {
+          platform: process.platform,
+          ...ffmpegPath ? { ffmpegPath } : {}
+        }
+      }, 5e3);
+      if (!response.ok) {
+        if (ffmpegFallback.options.length > 1) {
+          return {
+            success: true,
+            options: ffmpegFallback.options,
+            message: response.error || ffmpegFallback.message || "Sidecar encoder options unavailable, used FFmpeg probe fallback"
+          };
+        }
+        return {
+          success: false,
+          options: ffmpegFallback.options,
+          message: response.error || "Failed to fetch encoder options"
+        };
+      }
+      const rawOptions = Array.isArray((_a = response.payload) == null ? void 0 : _a.options) ? response.payload.options : [];
+      const options = rawOptions.filter((item) => Boolean(item) && typeof item === "object" && typeof item.codec === "string" && typeof item.label === "string" && typeof item.hardware === "string").map((item) => ({
+        encoder: item.codec,
+        label: item.label,
+        hardware: item.hardware
+      }));
+      if (!options.some((option) => option.encoder === "h264_libx264")) {
+        options.unshift({ encoder: "h264_libx264", label: "x264 (CPU)", hardware: "cpu" });
+      }
+      return { success: true, options };
+    } catch (error) {
+      if (ffmpegFallback.options.length > 1) {
+        return {
+          success: true,
+          options: ffmpegFallback.options,
+          message: error instanceof Error ? error.message : ffmpegFallback.message
+        };
+      }
+      return {
+        success: false,
+        options: ffmpegFallback.options,
+        message: error instanceof Error ? error.message : "Failed to fetch encoder options"
+      };
+    }
+  }
+  getEncoderOptionsFromFfmpeg(ffmpegPath) {
+    const options = [
+      { encoder: "h264_libx264", label: "x264 (CPU)", hardware: "cpu" }
+    ];
+    const probePath = ffmpegPath || (process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg");
+    const output = spawnSync(probePath, ["-hide_banner", "-encoders"], {
+      encoding: "utf8",
+      windowsHide: true,
+      timeout: 4e3
+    });
+    const text = `${output.stdout || ""}
+${output.stderr || ""}`;
+    if (output.error || !text.trim()) {
+      return {
+        success: false,
+        options,
+        message: output.error instanceof Error ? output.error.message : "Unable to probe FFmpeg encoders"
+      };
+    }
+    if (text.includes("h264_nvenc")) {
+      options.push({ encoder: "h264_nvenc", label: "NVIDIA H264 (GPU)", hardware: "nvidia" });
+    }
+    if (text.includes("h264_amf")) {
+      options.push({ encoder: "h264_amf", label: "AMD H264", hardware: "amd" });
+    }
+    return { success: true, options };
+  }
   getStatus(sessionId) {
     return {
       status: this.status,
@@ -610,8 +696,7 @@ class NativeCaptureService {
       this.consumeStdout(chunk);
     });
     child.stderr.setEncoding("utf8");
-    child.stderr.on("data", (chunk) => {
-      console.warn("[native-capture][sidecar][stderr]", chunk.trim());
+    child.stderr.on("data", (_chunk) => {
     });
     child.on("exit", (code, signal) => {
       const message = `Native capture sidecar exited (code=${code ?? "null"}, signal=${signal ?? "null"})`;
@@ -655,7 +740,6 @@ class NativeCaptureService {
       try {
         parsed = JSON.parse(trimmed);
       } catch {
-        console.warn("[native-capture][sidecar] Invalid JSON:", trimmed);
         continue;
       }
       if (parsed.id) {
@@ -732,7 +816,10 @@ const hudSettings = {
   recordingFps: 60,
   customCursorEnabled: true,
   useLegacyRecorder: false,
-  recordingCodec: "h264_libx264"
+  recordingEncoder: "h264_libx264",
+  encoderOptions: [
+    { encoder: "h264_libx264", label: "x264 (CPU)", hardware: "cpu" }
+  ]
 };
 function resolveCaptureRegionForDisplay(displayId) {
   if (!displayId) return void 0;
@@ -863,7 +950,7 @@ function registerIpcHandlers(createEditorWindow2, createHudOverlayWindow2, creat
       x: bounds.x,
       y: bounds.y,
       webPreferences: {
-        preload: path.join(__dirname$1, "../preload.mjs"),
+        preload: path.join(__dirname$1, "preload.mjs"),
         nodeIntegration: false,
         contextIsolation: true,
         backgroundThrottling: false
@@ -1106,11 +1193,33 @@ function registerIpcHandlers(createEditorWindow2, createHudOverlayWindow2, creat
         hudSettings.customCursorEnabled = false;
       }
     }
-    if (partial.recordingCodec === "h264_libx264" || partial.recordingCodec === "h264_nvenc" || partial.recordingCodec === "hevc_nvenc") {
-      hudSettings.recordingCodec = partial.recordingCodec;
+    if (partial.recordingEncoder === "h264_libx264" || partial.recordingEncoder === "h264_nvenc" || partial.recordingEncoder === "hevc_nvenc" || partial.recordingEncoder === "h264_amf") {
+      hudSettings.recordingEncoder = partial.recordingEncoder;
     }
     broadcastHudSettings();
     return { success: true, settings: hudSettings };
+  });
+  ipcMain.handle("set-hud-encoder-options", (_, options) => {
+    var _a;
+    if (!Array.isArray(options)) {
+      return { success: false, message: "Invalid encoder options payload" };
+    }
+    const normalized = options.filter((option) => Boolean(option) && typeof option === "object" && (option.encoder === "h264_libx264" || option.encoder === "h264_nvenc" || option.encoder === "hevc_nvenc" || option.encoder === "h264_amf") && typeof option.label === "string" && (option.hardware === "cpu" || option.hardware === "nvidia" || option.hardware === "amd"));
+    if (!normalized.some((option) => option.encoder === "h264_libx264")) {
+      normalized.unshift({ encoder: "h264_libx264", label: "x264 (CPU)", hardware: "cpu" });
+    }
+    hudSettings.encoderOptions = normalized;
+    if (!hudSettings.encoderOptions.some((option) => option.encoder === hudSettings.recordingEncoder)) {
+      hudSettings.recordingEncoder = ((_a = hudSettings.encoderOptions[0]) == null ? void 0 : _a.encoder) ?? "h264_libx264";
+    }
+    broadcastHudSettings();
+    return { success: true, settings: hudSettings };
+  });
+  ipcMain.handle("native-capture-encoder-options", async () => {
+    const packagedFfmpeg = app.isPackaged ? path.join(process.resourcesPath, "native-capture", process.platform, process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg") : path.join(app.getAppPath(), "native-capture-sidecar", "bin", process.platform, process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg");
+    const ffmpegPath = fs.existsSync(packagedFfmpeg) ? packagedFfmpeg : void 0;
+    const result = await nativeCaptureService.getEncoderOptions(ffmpegPath);
+    return result;
   });
   ipcMain.handle("native-capture-start", async (_, payload) => {
     var _a, _b;

@@ -38,6 +38,7 @@ Dev/build prep now tries this order automatically:
 ## Protocol commands
 
 - `init`
+- `get_encoder_options`
 - `start_capture`
 - `stop_capture`
 

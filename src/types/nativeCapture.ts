@@ -1,3 +1,5 @@
+export type RecordingEncoder = "h264_libx264" | "h264_nvenc" | "hevc_nvenc" | "h264_amf";
+
 export type NativeCapturePlatform = "win32" | "darwin" | "linux";
 
 export type NativeCaptureSource = {
@@ -12,7 +14,7 @@ export type NativeCaptureVideoConfig = {
   height: number;
   fps: number;
   bitrate: number;
-  codec: "h264_libx264" | "h264_nvenc" | "hevc_nvenc";
+  encoder: RecordingEncoder;
 };
 
 export type NativeCaptureCursorConfig = {

@@ -1,5 +1,5 @@
 import { app } from "electron";
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import type {
@@ -12,6 +12,7 @@ import type {
 
 type SidecarRequest =
   | { id: string; cmd: "init"; payload: { platform: NodeJS.Platform } }
+  | { id: string; cmd: "get_encoder_options"; payload: { platform: NodeJS.Platform; ffmpegPath?: string } }
   | { id: string; cmd: "start_capture"; payload: NativeCaptureStartPayload }
   | { id: string; cmd: "stop_capture"; payload: NativeCaptureStopPayload };
 
@@ -122,6 +123,110 @@ export class NativeCaptureService {
     }
   }
 
+  async getEncoderOptions(ffmpegPath?: string): Promise<{ success: boolean; options: Array<{ encoder: string; label: string; hardware: string }>; message?: string }> {
+    const ffmpegFallback = this.getEncoderOptionsFromFfmpeg(ffmpegPath);
+
+    const boot = await this.ensureProcess();
+    if (!boot.success) {
+      return {
+        success: ffmpegFallback.success,
+        options: ffmpegFallback.options,
+        message: boot.message || ffmpegFallback.message,
+      };
+    }
+
+    try {
+      const response = await this.sendRequest({
+        id: this.nextId("get-encoder-options"),
+        cmd: "get_encoder_options",
+        payload: {
+          platform: process.platform,
+          ...(ffmpegPath ? { ffmpegPath } : {}),
+        },
+      }, 5_000);
+
+      if (!response.ok) {
+        if (ffmpegFallback.options.length > 1) {
+          return {
+            success: true,
+            options: ffmpegFallback.options,
+            message: response.error || ffmpegFallback.message || "Sidecar encoder options unavailable, used FFmpeg probe fallback",
+          };
+        }
+        return {
+          success: false,
+          options: ffmpegFallback.options,
+          message: response.error || "Failed to fetch encoder options",
+        };
+      }
+
+      const rawOptions = Array.isArray(response.payload?.options) ? response.payload.options : [];
+      const options = rawOptions
+        .filter((item): item is { codec: string; label: string; hardware: string } => (
+          Boolean(item)
+          && typeof item === "object"
+          && typeof (item as { codec?: unknown }).codec === "string"
+          && typeof (item as { label?: unknown }).label === "string"
+          && typeof (item as { hardware?: unknown }).hardware === "string"
+        ))
+        .map((item) => ({
+          encoder: item.codec,
+          label: item.label,
+          hardware: item.hardware,
+      }));
+
+      if (!options.some((option) => option.encoder === "h264_libx264")) {
+        options.unshift({ encoder: "h264_libx264", label: "x264 (CPU)", hardware: "cpu" });
+      }
+
+      return { success: true, options };
+    } catch (error) {
+      if (ffmpegFallback.options.length > 1) {
+        return {
+          success: true,
+          options: ffmpegFallback.options,
+          message: error instanceof Error ? error.message : ffmpegFallback.message,
+        };
+      }
+      return {
+        success: false,
+        options: ffmpegFallback.options,
+        message: error instanceof Error ? error.message : "Failed to fetch encoder options",
+      };
+    }
+  }
+
+  private getEncoderOptionsFromFfmpeg(ffmpegPath?: string): { success: boolean; options: Array<{ encoder: string; label: string; hardware: string }>; message?: string } {
+    const options: Array<{ encoder: string; label: string; hardware: string }> = [
+      { encoder: "h264_libx264", label: "x264 (CPU)", hardware: "cpu" },
+    ];
+
+    const probePath = ffmpegPath || (process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg");
+    const output = spawnSync(probePath, ["-hide_banner", "-encoders"], {
+      encoding: "utf8",
+      windowsHide: true,
+      timeout: 4_000,
+    });
+
+    const text = `${output.stdout || ""}\n${output.stderr || ""}`;
+    if (output.error || !text.trim()) {
+      return {
+        success: false,
+        options,
+        message: output.error instanceof Error ? output.error.message : "Unable to probe FFmpeg encoders",
+      };
+    }
+
+    if (text.includes("h264_nvenc")) {
+      options.push({ encoder: "h264_nvenc", label: "NVIDIA H264 (GPU)", hardware: "nvidia" });
+    }
+    if (text.includes("h264_amf")) {
+      options.push({ encoder: "h264_amf", label: "AMD H264", hardware: "amd" });
+    }
+
+    return { success: true, options };
+  }
+
   getStatus(sessionId?: string): NativeCaptureStatusResult {
     return {
       status: this.status,
@@ -170,9 +275,7 @@ export class NativeCaptureService {
       this.consumeStdout(chunk);
     });
     child.stderr.setEncoding("utf8");
-    child.stderr.on("data", (chunk: string) => {
-      console.warn("[native-capture][sidecar][stderr]", chunk.trim());
-    });
+    child.stderr.on("data", (_chunk: string) => {});
     child.on("exit", (code, signal) => {
       const message = `Native capture sidecar exited (code=${code ?? "null"}, signal=${signal ?? "null"})`;
       for (const [, pending] of this.pending.entries()) {
@@ -217,7 +320,6 @@ export class NativeCaptureService {
       try {
         parsed = JSON.parse(trimmed) as SidecarResponse;
       } catch {
-        console.warn("[native-capture][sidecar] Invalid JSON:", trimmed);
         continue;
       }
       if (parsed.id) {

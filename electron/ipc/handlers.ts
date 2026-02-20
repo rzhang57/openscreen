@@ -32,7 +32,12 @@ type HudSettings = {
   recordingFps: 60 | 120
   customCursorEnabled: boolean
   useLegacyRecorder: boolean
-  recordingCodec: 'h264_libx264' | 'h264_nvenc' | 'hevc_nvenc'
+  recordingEncoder: 'h264_libx264' | 'h264_nvenc' | 'hevc_nvenc' | 'h264_amf'
+  encoderOptions: Array<{
+    encoder: 'h264_libx264' | 'h264_nvenc' | 'hevc_nvenc' | 'h264_amf'
+    label: string
+    hardware: 'cpu' | 'nvidia' | 'amd'
+  }>
 }
 
 const hudSettings: HudSettings = {
@@ -46,7 +51,10 @@ const hudSettings: HudSettings = {
   recordingFps: 60,
   customCursorEnabled: true,
   useLegacyRecorder: false,
-  recordingCodec: 'h264_libx264',
+  recordingEncoder: 'h264_libx264',
+  encoderOptions: [
+    { encoder: 'h264_libx264', label: 'x264 (CPU)', hardware: 'cpu' },
+  ],
 }
 
 function resolveCaptureRegionForDisplay(displayId?: string): { x: number; y: number; width: number; height: number } | undefined {
@@ -215,7 +223,7 @@ export function registerIpcHandlers(
       x: bounds.x,
       y: bounds.y,
       webPreferences: {
-        preload: path.join(__dirname, '../preload.mjs'),
+        preload: path.join(__dirname, 'preload.mjs'),
         nodeIntegration: false,
         contextIsolation: true,
         backgroundThrottling: false,
@@ -506,11 +514,42 @@ export function registerIpcHandlers(
         hudSettings.customCursorEnabled = false
       }
     }
-    if (partial.recordingCodec === 'h264_libx264' || partial.recordingCodec === 'h264_nvenc' || partial.recordingCodec === 'hevc_nvenc') {
-      hudSettings.recordingCodec = partial.recordingCodec
+    if (partial.recordingEncoder === 'h264_libx264' || partial.recordingEncoder === 'h264_nvenc' || partial.recordingEncoder === 'hevc_nvenc' || partial.recordingEncoder === 'h264_amf') {
+      hudSettings.recordingEncoder = partial.recordingEncoder
     }
     broadcastHudSettings()
     return { success: true, settings: hudSettings }
+  })
+
+  ipcMain.handle('set-hud-encoder-options', (_, options: Array<{ encoder: string; label: string; hardware: string }>) => {
+    if (!Array.isArray(options)) {
+      return { success: false, message: 'Invalid encoder options payload' }
+    }
+    const normalized = options.filter((option): option is HudSettings['encoderOptions'][number] => (
+      Boolean(option)
+      && typeof option === 'object'
+      && (option.encoder === 'h264_libx264' || option.encoder === 'h264_nvenc' || option.encoder === 'hevc_nvenc' || option.encoder === 'h264_amf')
+      && typeof option.label === 'string'
+      && (option.hardware === 'cpu' || option.hardware === 'nvidia' || option.hardware === 'amd')
+    ))
+    if (!normalized.some((option) => option.encoder === 'h264_libx264')) {
+      normalized.unshift({ encoder: 'h264_libx264', label: 'x264 (CPU)', hardware: 'cpu' })
+    }
+    hudSettings.encoderOptions = normalized
+    if (!hudSettings.encoderOptions.some((option) => option.encoder === hudSettings.recordingEncoder)) {
+      hudSettings.recordingEncoder = hudSettings.encoderOptions[0]?.encoder ?? 'h264_libx264'
+    }
+    broadcastHudSettings()
+    return { success: true, settings: hudSettings }
+  })
+
+  ipcMain.handle('native-capture-encoder-options', async () => {
+    const packagedFfmpeg = app.isPackaged
+      ? path.join(process.resourcesPath, 'native-capture', process.platform, process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg')
+      : path.join(app.getAppPath(), 'native-capture-sidecar', 'bin', process.platform, process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg')
+    const ffmpegPath = fsSync.existsSync(packagedFfmpeg) ? packagedFfmpeg : undefined
+    const result = await nativeCaptureService.getEncoderOptions(ffmpegPath)
+    return result
   })
 
   ipcMain.handle('native-capture-start', async (_, payload: NativeCaptureStartPayload) => {

@@ -1,6 +1,9 @@
 import { useState, useRef, useEffect } from "react";
 import { fixWebmDuration } from "@fix-webm-duration/fix";
 import type { InputTelemetryFileV1 } from "@/types/inputTelemetry";
+import type { RecordingEncoder } from "@/types/nativeCapture";
+
+const RECORDING_NOTICE_STORAGE_KEY = "openscreen.recordingNotice";
 
 export interface RecorderOptions {
   micEnabled: boolean;
@@ -13,7 +16,7 @@ export interface RecorderOptions {
   recordingFps?: RecordingFps;
   customCursorEnabled?: boolean;
   useLegacyRecorder?: boolean;
-  recordingCodec?: "h264_libx264" | "h264_nvenc" | "hevc_nvenc";
+  recordingEncoder?: RecordingEncoder;
 }
 
 export type RecordingPreset = "performance" | "balanced" | "quality";
@@ -44,7 +47,19 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
   const cameraStartTime = useRef<number | null>(null);
   const nativeCaptureActiveRef = useRef(false);
   const nativeCustomCursorEnabledRef = useRef(true);
-  const nativeRecordingCodecRef = useRef<"h264_libx264" | "h264_nvenc" | "hevc_nvenc">("h264_libx264");
+  const nativeRecordingEncoderRef = useRef<RecordingEncoder>("h264_libx264");
+  const setRecordingNotice = (message: string) => {
+    try {
+      localStorage.setItem(RECORDING_NOTICE_STORAGE_KEY, message);
+    } catch {
+    }
+  };
+  const clearRecordingNotice = () => {
+    try {
+      localStorage.removeItem(RECORDING_NOTICE_STORAGE_KEY);
+    } catch {
+    }
+  };
 
   const getCaptureProfile = (options: RecorderOptions): CaptureProfile => {
     const preset = options.recordingPreset ?? "quality";
@@ -217,7 +232,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
         autoZoomAlgorithmVersion: undefined,
         customCursorEnabled: nativeCustomCursorEnabledRef.current,
         captureBackend: "native-sidecar",
-        recordingCodec: nativeRecordingCodecRef.current,
+        recordingEncoder: nativeRecordingEncoderRef.current,
       },
     };
 
@@ -276,6 +291,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 
   const startRecording = async (options: RecorderOptions) => {
     try {
+      clearRecordingNotice();
       const captureProfile = getCaptureProfile(options);
       const selectedSource = await window.electronAPI.getSelectedSource();
       if (!selectedSource) {
@@ -313,50 +329,70 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 
       const canTryNativeCapture = typeof window.electronAPI?.nativeCaptureStart === "function";
       nativeCustomCursorEnabledRef.current = Boolean(options.customCursorEnabled);
-      nativeRecordingCodecRef.current = options.recordingCodec || "h264_libx264";
+      nativeRecordingEncoderRef.current = options.recordingEncoder || "h264_libx264";
       const sourceType = typeof selectedSource.id === "string" && selectedSource.id.startsWith("window:")
         ? "window"
         : "screen";
-      const shouldPreferNative = Boolean(options.customCursorEnabled) || !Boolean(options.useLegacyRecorder);
+      const shouldPreferNative = Boolean(options.customCursorEnabled) || !options.useLegacyRecorder;
       if (canTryNativeCapture && shouldPreferNative) {
-        const selectedCodec = options.recordingCodec || "h264_libx264";
-        let nativeBitrate = computeBitrate(captureProfile.width, captureProfile.height, captureProfile.fps);
-        if (selectedCodec === "h264_nvenc") {
-          nativeBitrate = Math.max(8_000_000, Math.round(nativeBitrate * 0.8));
-        } else if (selectedCodec === "hevc_nvenc") {
-          nativeBitrate = Math.max(6_000_000, Math.round(nativeBitrate * 0.65));
-        }
-        const nativeStart = await window.electronAPI.nativeCaptureStart({
-          sessionId: sessionIdRef.current,
-          source: {
-            type: sourceType,
-            id: sourceId,
-            displayId: sourceDisplayId,
-            name: typeof selectedSource.name === "string" ? selectedSource.name : undefined,
-          },
-          video: {
-            width: captureProfile.width,
-            height: captureProfile.height,
-            fps: captureProfile.fps,
-            bitrate: nativeBitrate,
-            codec: selectedCodec,
-          },
-          cursor: {
-            mode: options.customCursorEnabled ? "hide" : "system",
-          },
-          outputPath: `native-recording-${recordingStartedAtMs}.mp4`,
-          platform: (await window.electronAPI.getPlatform()) as "win32" | "darwin" | "linux",
-        });
+        const selectedEncoder = options.recordingEncoder || "h264_libx264";
+        const buildNativePayload = async (encoder: RecordingEncoder) => {
+          let bitrate = computeBitrate(captureProfile.width, captureProfile.height, captureProfile.fps);
+          if (encoder === "h264_nvenc") {
+            bitrate = Math.max(8_000_000, Math.round(bitrate * 0.8));
+          } else if (encoder === "hevc_nvenc") {
+            bitrate = Math.max(6_000_000, Math.round(bitrate * 0.65));
+          } else if (encoder === "h264_amf") {
+            bitrate = Math.max(8_000_000, Math.round(bitrate * 0.85));
+          }
+          return {
+            sessionId: sessionIdRef.current,
+            source: {
+              type: sourceType,
+              id: sourceId,
+              displayId: sourceDisplayId,
+              name: typeof selectedSource.name === "string" ? selectedSource.name : undefined,
+            },
+            video: {
+              width: captureProfile.width,
+              height: captureProfile.height,
+              fps: captureProfile.fps,
+              bitrate,
+              encoder,
+            },
+            cursor: {
+              mode: options.customCursorEnabled ? "hide" : "system",
+            },
+            outputPath: `native-recording-${recordingStartedAtMs}.mp4`,
+            platform: (await window.electronAPI.getPlatform()) as "win32" | "darwin" | "linux",
+          };
+        };
+        const nativeStart = await window.electronAPI.nativeCaptureStart(await buildNativePayload(selectedEncoder));
         if (nativeStart.success) {
           nativeCaptureActiveRef.current = true;
           setRecording(true);
           window.electronAPI?.setRecordingState(true);
           return;
         }
+        const canRetryWithX264 = Boolean(options.customCursorEnabled)
+          && (selectedEncoder === "h264_nvenc" || selectedEncoder === "hevc_nvenc");
+        if (canRetryWithX264) {
+          console.warn("[native-capture] NVENC start failed with custom cursor, retrying with x264 (CPU)", nativeStart.message);
+          const fallbackStart = await window.electronAPI.nativeCaptureStart(await buildNativePayload("h264_libx264"));
+          if (fallbackStart.success) {
+            nativeCaptureActiveRef.current = true;
+            nativeRecordingEncoderRef.current = "h264_libx264";
+            window.electronAPI?.updateHudSettings({ recordingEncoder: "h264_libx264" }).catch(() => {});
+            setRecordingNotice("NVENC failed at start. Switched to x264 (CPU) for this recording.");
+            setRecording(true);
+            window.electronAPI?.setRecordingState(true);
+            return;
+          }
+        }
         if (options.customCursorEnabled) {
           console.error("[native-capture] start failed while custom cursor is enabled", nativeStart.message);
+          setRecordingNotice(`Native recorder failed to start: ${nativeStart.message || "unknown error"}`);
           window.electronAPI?.stopInputTracking().catch(() => {});
-          alert(`Native recorder failed to start: ${nativeStart.message || "unknown error"}. Custom cursor recording requires native recorder.`);
           return;
         }
         console.warn("[native-capture] start failed, falling back to renderer capture", nativeStart.message);
@@ -661,7 +697,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
       recordingFps: 60,
       customCursorEnabled: true,
       useLegacyRecorder: false,
-      recordingCodec: "h264_libx264",
+      recordingEncoder: "h264_libx264",
     };
     startRecording(resolvedOptions);
   };

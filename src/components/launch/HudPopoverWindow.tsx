@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import { Camera, Mic, Settings2, X } from "lucide-react";
+import type { RecordingEncoder } from "@/types/nativeCapture";
 
 type PopoverKind = "recording" | "media";
 type MicProcessingMode = "raw" | "cleaned";
 type RecordingPreset = "performance" | "balanced" | "quality";
 type RecordingFps = 60 | 120;
+const RECORDING_NOTICE_STORAGE_KEY = "openscreen.recordingNotice";
 
 type HudSettings = {
   micEnabled: boolean;
@@ -17,8 +19,10 @@ type HudSettings = {
   recordingFps: RecordingFps;
   customCursorEnabled: boolean;
   useLegacyRecorder: boolean;
-  recordingCodec: "h264_libx264" | "h264_nvenc" | "hevc_nvenc";
+  recordingEncoder: RecordingEncoder;
+  encoderOptions: EncoderOption[];
 };
+type EncoderOption = { encoder: RecordingEncoder; label: string; hardware: "cpu" | "nvidia" | "amd" };
 
 const defaultSettings: HudSettings = {
   micEnabled: true,
@@ -31,7 +35,8 @@ const defaultSettings: HudSettings = {
   recordingFps: 60,
   customCursorEnabled: true,
   useLegacyRecorder: false,
-  recordingCodec: "h264_libx264",
+  recordingEncoder: "h264_libx264",
+  encoderOptions: [{ encoder: "h264_libx264", label: "x264 (CPU)", hardware: "cpu" }],
 };
 
 export function HudPopoverWindow() {
@@ -43,6 +48,29 @@ export function HudPopoverWindow() {
   const [settings, setSettings] = useState<HudSettings>(defaultSettings);
   const [micDevices, setMicDevices] = useState<MediaDeviceInfo[]>([]);
   const [cameraDevices, setCameraDevices] = useState<MediaDeviceInfo[]>([]);
+  const [recordingNotice, setRecordingNotice] = useState<string | null>(null);
+  const [encoderOptions, setEncoderOptions] = useState<EncoderOption[]>([
+    { encoder: "h264_libx264", label: "x264 (CPU)", hardware: "cpu" },
+  ]);
+  const refreshEncoderOptions = useCallback(() => {
+    window.electronAPI?.getNativeCaptureEncoderOptions()
+      .then((result) => {
+        const options = result?.options ?? [];
+        if (options.length > 0) {
+          const normalized = options.filter((option): option is EncoderOption => (
+            option.encoder === "h264_libx264"
+            || option.encoder === "h264_nvenc"
+            || option.encoder === "hevc_nvenc"
+            || option.encoder === "h264_amf"
+          ));
+          if (normalized.length > 0) {
+            setEncoderOptions(normalized);
+            window.electronAPI?.setHudEncoderOptions?.(normalized).catch(() => {});
+          }
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -53,16 +81,44 @@ export function HudPopoverWindow() {
   }, []);
 
   useEffect(() => {
+    if (kind !== "recording") return;
+    try {
+      const storedNotice = localStorage.getItem(RECORDING_NOTICE_STORAGE_KEY);
+      setRecordingNotice(storedNotice && storedNotice.trim().length > 0 ? storedNotice : null);
+    } catch {
+      setRecordingNotice(null);
+    }
+    refreshEncoderOptions();
+    const onFocus = () => refreshEncoderOptions();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [kind, refreshEncoderOptions]);
+
+  useEffect(() => {
+    if (!encoderOptions.some((option) => option.encoder === settings.recordingEncoder)) {
+      const fallbackEncoder = encoderOptions[0]?.encoder ?? "h264_libx264";
+      setSettings((prev) => ({ ...prev, recordingEncoder: fallbackEncoder }));
+      window.electronAPI?.updateHudSettings({ recordingEncoder: fallbackEncoder }).catch(() => {});
+    }
+  }, [encoderOptions, settings.recordingEncoder]);
+
+  useEffect(() => {
     let mounted = true;
     window.electronAPI?.getHudSettings().then((result) => {
       if (mounted && result?.success) {
         setSettings(result.settings);
+        if (Array.isArray(result.settings.encoderOptions) && result.settings.encoderOptions.length > 0) {
+          setEncoderOptions((prev) => result.settings.encoderOptions.length >= prev.length ? result.settings.encoderOptions : prev);
+        }
       }
     }).catch(() => {});
 
     const unsubscribe = window.electronAPI?.onHudSettingsUpdated?.((updated) => {
       if (mounted) {
         setSettings(updated);
+        if (Array.isArray(updated.encoderOptions) && updated.encoderOptions.length > 0) {
+          setEncoderOptions((prev) => updated.encoderOptions.length >= prev.length ? updated.encoderOptions : prev);
+        }
       }
     });
 
@@ -70,7 +126,7 @@ export function HudPopoverWindow() {
       mounted = false;
       unsubscribe?.();
     };
-  }, []);
+  }, [kind, refreshEncoderOptions]);
 
   useEffect(() => {
     if (kind !== "media") return;
@@ -96,6 +152,9 @@ export function HudPopoverWindow() {
     setSettings((prev) => ({ ...prev, ...partial }));
     window.electronAPI?.updateHudSettings(partial).catch(() => {});
   };
+  const isLegacyMode = settings.useLegacyRecorder;
+  const isNativeMode = !isLegacyMode;
+  const isNativeCustomCursorMode = isNativeMode && settings.customCursorEnabled;
 
   const closeSelf = useCallback(() => {
     const api = window.electronAPI;
@@ -154,6 +213,25 @@ export function HudPopoverWindow() {
               <Settings2 size={14} className="text-slate-200" />
               <div className="text-xs font-semibold text-slate-200">Recording Settings</div>
             </div>
+            {recordingNotice && (
+              <div className="flex items-start justify-between gap-2 rounded-md border border-amber-300/25 bg-amber-400/10 px-2 py-1.5">
+                <div className="text-[10px] leading-relaxed text-amber-100/90">{recordingNotice}</div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    try {
+                      localStorage.removeItem(RECORDING_NOTICE_STORAGE_KEY);
+                    } catch {
+                    }
+                    setRecordingNotice(null);
+                  }}
+                  className="text-[10px] text-amber-200/80 hover:text-amber-100"
+                  title="Dismiss notice"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
             <div className="space-y-1.5">
               <label className="text-[10px] uppercase tracking-wider text-slate-500">Preset</label>
               <div className="grid grid-cols-3 gap-1">
@@ -193,67 +271,73 @@ export function HudPopoverWindow() {
               </div>
             </div>
             <div className="space-y-1.5">
-              <label className="text-[10px] uppercase tracking-wider text-slate-500">Codec</label>
-              <div className="grid grid-cols-3 gap-1">
-                {([
-                  { key: "h264_nvenc", label: "NVENC H264" },
-                  { key: "hevc_nvenc", label: "NVENC HEVC" },
-                  { key: "h264_libx264", label: "x264 CPU" },
-                ] as const).map((codec) => (
-                  <button
-                    key={codec.key}
-                    type="button"
-                    onClick={() => update({ recordingCodec: codec.key })}
-                    className={`h-7 rounded-md text-[10px] font-medium border ${
-                      settings.recordingCodec === codec.key
-                        ? "bg-white text-black border-white"
-                        : "bg-white/5 text-slate-300 border-white/10 hover:bg-white/10"
-                    }`}
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <label className="text-[10px] uppercase tracking-wider text-slate-500">Engine</label>
+                  <select
+                    className="w-full h-7 text-[10px] bg-[#1c1c1c] text-white border border-white/20 rounded-md px-1.5 outline-none"
+                    style={{ colorScheme: "dark" }}
+                    value={settings.useLegacyRecorder ? "legacy" : "native"}
+                    onChange={(e) => {
+                      if (e.target.value === "legacy") {
+                        update({ useLegacyRecorder: true, customCursorEnabled: false });
+                        return;
+                      }
+                      update({ useLegacyRecorder: false });
+                    }}
                   >
-                    {codec.label}
-                  </button>
+                    <option value="native" className="bg-white text-black">Native</option>
+                    <option value="legacy" className="bg-white text-black">Legacy</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] uppercase tracking-wider text-slate-500">Cursor</label>
+                  <select
+                    className="w-full h-7 text-[10px] bg-[#1c1c1c] text-white border border-white/20 rounded-md px-1.5 outline-none"
+                    style={{ colorScheme: "dark" }}
+                    value={settings.customCursorEnabled ? "custom" : "system"}
+                    onChange={(e) => {
+                      if (e.target.value === "custom") {
+                        update({ customCursorEnabled: true, useLegacyRecorder: false });
+                        return;
+                      }
+                      update({ customCursorEnabled: false });
+                    }}
+                  >
+                    <option value="system" className="bg-white text-black">System</option>
+                    <option value="custom" className="bg-white text-black">Custom</option>
+                  </select>
+                </div>
+              </div>
+              <div className="text-[10px] text-slate-500 leading-relaxed">
+                Custom cursor forces Native.
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[10px] uppercase tracking-wider text-slate-500">Encoder</label>
+              <div className="text-[10px] text-slate-500">
+                {isLegacyMode
+                  ? "Encoder selection is only used in Native modes."
+                  : `Detected encoders: ${encoderOptions.map((option) => option.label).join(", ")}`}
+              </div>
+              <select
+                className="w-full h-7 text-[10px] bg-[#1c1c1c] text-white border border-white/20 rounded-md px-1.5 outline-none disabled:opacity-40 disabled:cursor-not-allowed"
+                style={{ colorScheme: "dark" }}
+                value={settings.recordingEncoder}
+                onChange={(e) => update({ recordingEncoder: e.target.value as RecordingEncoder })}
+                disabled={isLegacyMode}
+              >
+                {encoderOptions.map((enc) => (
+                  <option key={enc.encoder} value={enc.encoder} className="bg-white text-black">
+                    {enc.label}
+                  </option>
                 ))}
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-[10px] uppercase tracking-wider text-slate-500">Cursor</label>
-              <button
-                type="button"
-                onClick={() => update({
-                  customCursorEnabled: !settings.customCursorEnabled,
-                  ...(settings.customCursorEnabled ? {} : { useLegacyRecorder: false }),
-                })}
-                className={`w-full h-7 rounded-md text-[10px] font-medium border ${
-                  settings.customCursorEnabled
-                    ? "bg-white text-black border-white"
-                    : "bg-white/5 text-slate-300 border-white/10 hover:bg-white/10"
-                }`}
-              >
-                {settings.customCursorEnabled ? "Custom Cursor On" : "Custom Cursor Off"}
-              </button>
-              <div className="text-[10px] text-slate-500 leading-relaxed">
-                When enabled, screen capture hides the native cursor and records cursor telemetry for smoothing/editing.
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-[10px] uppercase tracking-wider text-slate-500">Recorder Engine</label>
-              <button
-                type="button"
-                onClick={() => update({
-                  useLegacyRecorder: !settings.useLegacyRecorder,
-                  ...(settings.useLegacyRecorder ? {} : { customCursorEnabled: false }),
-                })}
-                className={`w-full h-7 rounded-md text-[10px] font-medium border ${
-                  settings.useLegacyRecorder
-                    ? "bg-white text-black border-white"
-                    : "bg-white/5 text-slate-300 border-white/10 hover:bg-white/10"
-                }`}
-              >
-                {settings.useLegacyRecorder ? "Legacy Recorder On" : "Legacy Recorder Off (Native)"}
-              </button>
-              <div className="text-[10px] text-slate-500 leading-relaxed">
-                Legacy and Custom Cursor are mutually exclusive.
-              </div>
+              </select>
+              {isNativeCustomCursorMode && settings.recordingEncoder === "h264_nvenc" && (
+                <div className="text-[10px] text-amber-300/90 leading-relaxed">
+                  If NVENC fails to start with Custom Cursor, switch to x264 (CPU) or System cursor.
+                </div>
+              )}
             </div>
           </div>
         ) : (

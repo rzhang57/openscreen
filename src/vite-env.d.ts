@@ -33,7 +33,7 @@ interface RecordingSession {
   autoZoomAlgorithmVersion?: string;
   customCursorEnabled?: boolean;
   captureBackend?: "native-sidecar" | "legacy-electron";
-  recordingCodec?: "h264_libx264" | "h264_nvenc" | "hevc_nvenc";
+  recordingEncoder?: "h264_libx264" | "h264_nvenc" | "hevc_nvenc" | "h264_amf";
 }
 
 interface Window {
@@ -67,9 +67,24 @@ interface Window {
         recordingFps: 60 | 120
         customCursorEnabled: boolean
         useLegacyRecorder: boolean
-        recordingCodec: 'h264_libx264' | 'h264_nvenc' | 'hevc_nvenc'
+        recordingEncoder: 'h264_libx264' | 'h264_nvenc' | 'hevc_nvenc' | 'h264_amf'
+        encoderOptions: Array<{ encoder: 'h264_libx264' | 'h264_nvenc' | 'hevc_nvenc' | 'h264_amf'; label: string; hardware: 'cpu' | 'nvidia' | 'amd' }>
       }
     }>
+    setHudEncoderOptions: (options: Array<{ encoder: 'h264_libx264' | 'h264_nvenc' | 'hevc_nvenc' | 'h264_amf'; label: string; hardware: 'cpu' | 'nvidia' | 'amd' }>) => Promise<{ success: boolean; settings?: {
+      micEnabled: boolean
+      selectedMicDeviceId: string
+      micProcessingMode: 'raw' | 'cleaned'
+      cameraEnabled: boolean
+      cameraPreviewEnabled: boolean
+      selectedCameraDeviceId: string
+      recordingPreset: 'performance' | 'balanced' | 'quality'
+      recordingFps: 60 | 120
+      customCursorEnabled: boolean
+      useLegacyRecorder: boolean
+      recordingEncoder: 'h264_libx264' | 'h264_nvenc' | 'hevc_nvenc' | 'h264_amf'
+      encoderOptions: Array<{ encoder: 'h264_libx264' | 'h264_nvenc' | 'hevc_nvenc' | 'h264_amf'; label: string; hardware: 'cpu' | 'nvidia' | 'amd' }>
+    }; message?: string }>
     preloadHudPopoverWindows: () => Promise<{ success: boolean; message?: string }>
     updateHudSettings: (partial: {
       micEnabled?: boolean
@@ -82,8 +97,13 @@ interface Window {
       recordingFps?: 60 | 120
       customCursorEnabled?: boolean
       useLegacyRecorder?: boolean
-      recordingCodec?: 'h264_libx264' | 'h264_nvenc' | 'hevc_nvenc'
+      recordingEncoder?: 'h264_libx264' | 'h264_nvenc' | 'hevc_nvenc' | 'h264_amf'
     }) => Promise<{ success: boolean }>
+    getNativeCaptureEncoderOptions: () => Promise<{
+      success: boolean
+      options: Array<{ encoder: 'h264_libx264' | 'h264_nvenc' | 'hevc_nvenc' | 'h264_amf'; label: string; hardware: 'cpu' | 'nvidia' | 'amd' }>
+      message?: string
+    }>
     openHudPopoverWindow: (payload: {
       kind: 'recording' | 'media'
       anchorRect: { x: number; y: number; width: number; height: number }
@@ -107,7 +127,8 @@ interface Window {
       recordingFps: 60 | 120
       customCursorEnabled: boolean
       useLegacyRecorder: boolean
-      recordingCodec: 'h264_libx264' | 'h264_nvenc' | 'hevc_nvenc'
+      recordingEncoder: 'h264_libx264' | 'h264_nvenc' | 'hevc_nvenc' | 'h264_amf'
+      encoderOptions: Array<{ encoder: 'h264_libx264' | 'h264_nvenc' | 'hevc_nvenc' | 'h264_amf'; label: string; hardware: 'cpu' | 'nvidia' | 'amd' }>
     }) => void) => () => void
     selectSource: (source: ProcessedDesktopSource) => Promise<ProcessedDesktopSource>
     getSelectedSource: () => Promise<ProcessedDesktopSource | null>

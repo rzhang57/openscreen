@@ -40,11 +40,17 @@ electron.contextBridge.exposeInMainWorld("electronAPI", {
   getHudSettings: () => {
     return electron.ipcRenderer.invoke("get-hud-settings");
   },
+  setHudEncoderOptions: (options) => {
+    return electron.ipcRenderer.invoke("set-hud-encoder-options", options);
+  },
   preloadHudPopoverWindows: () => {
     return electron.ipcRenderer.invoke("preload-hud-popover-windows");
   },
   updateHudSettings: (partial) => {
     return electron.ipcRenderer.invoke("update-hud-settings", partial);
+  },
+  getNativeCaptureEncoderOptions: () => {
+    return electron.ipcRenderer.invoke("native-capture-encoder-options");
   },
   openHudPopoverWindow: (payload) => {
     return electron.ipcRenderer.invoke("open-hud-popover-window", payload);

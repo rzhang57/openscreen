@@ -24,7 +24,7 @@ export interface RecordingSession {
   autoZoomAlgorithmVersion?: string;
   customCursorEnabled?: boolean;
   captureBackend?: "native-sidecar" | "legacy-electron";
-  recordingCodec?: "h264_libx264" | "h264_nvenc" | "hevc_nvenc";
+  recordingEncoder?: "h264_libx264" | "h264_nvenc" | "hevc_nvenc" | "h264_amf";
 }
 
 export interface CameraHiddenRegion {

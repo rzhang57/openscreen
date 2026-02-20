@@ -48,6 +48,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getHudSettings: () => {
     return ipcRenderer.invoke('get-hud-settings')
   },
+  setHudEncoderOptions: (options: Array<{ encoder: 'h264_libx264' | 'h264_nvenc' | 'hevc_nvenc' | 'h264_amf'; label: string; hardware: 'cpu' | 'nvidia' | 'amd' }>) => {
+    return ipcRenderer.invoke('set-hud-encoder-options', options)
+  },
   preloadHudPopoverWindows: () => {
     return ipcRenderer.invoke('preload-hud-popover-windows')
   },
@@ -62,9 +65,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     recordingFps?: 60 | 120
     customCursorEnabled?: boolean
     useLegacyRecorder?: boolean
-    recordingCodec?: 'h264_libx264' | 'h264_nvenc' | 'hevc_nvenc'
+    recordingEncoder?: 'h264_libx264' | 'h264_nvenc' | 'hevc_nvenc' | 'h264_amf'
   }) => {
     return ipcRenderer.invoke('update-hud-settings', partial)
+  },
+  getNativeCaptureEncoderOptions: () => {
+    return ipcRenderer.invoke('native-capture-encoder-options')
   },
   openHudPopoverWindow: (payload: {
     kind: 'recording' | 'media'
@@ -97,7 +103,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       recordingFps: 60 | 120
       customCursorEnabled: boolean
       useLegacyRecorder: boolean
-      recordingCodec: 'h264_libx264' | 'h264_nvenc' | 'hevc_nvenc'
+      recordingEncoder: 'h264_libx264' | 'h264_nvenc' | 'hevc_nvenc' | 'h264_amf'
+      encoderOptions: Array<{ encoder: 'h264_libx264' | 'h264_nvenc' | 'hevc_nvenc' | 'h264_amf'; label: string; hardware: 'cpu' | 'nvidia' | 'amd' }>
     }) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, settings: {
       micEnabled: boolean
@@ -110,7 +117,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       recordingFps: 60 | 120
       customCursorEnabled: boolean
       useLegacyRecorder: boolean
-      recordingCodec: 'h264_libx264' | 'h264_nvenc' | 'hevc_nvenc'
+      recordingEncoder: 'h264_libx264' | 'h264_nvenc' | 'hevc_nvenc' | 'h264_amf'
+      encoderOptions: Array<{ encoder: 'h264_libx264' | 'h264_nvenc' | 'hevc_nvenc' | 'h264_amf'; label: string; hardware: 'cpu' | 'nvidia' | 'amd' }>
     }) => callback(settings)
     ipcRenderer.on('hud-settings-updated', listener)
     return () => ipcRenderer.removeListener('hud-settings-updated', listener)

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, type RefObject } from "react";
 import styles from "./LaunchWindow.module.css";
 import { useScreenRecorder, type RecordingPreset, type RecordingFps } from "../../hooks/useScreenRecorder";
+import type { RecordingEncoder } from "@/types/nativeCapture";
 import { Button } from "../ui/button";
 import { BsRecordCircle } from "react-icons/bs";
 import { FaFolder, FaRegStopCircle } from "react-icons/fa";
@@ -30,11 +31,21 @@ export function LaunchWindow() {
   const [recordingFps, setRecordingFps] = useState<RecordingFps>(60);
   const [customCursorEnabled, setCustomCursorEnabled] = useState(true);
   const [useLegacyRecorder, setUseLegacyRecorder] = useState(false);
-  const [recordingCodec, setRecordingCodec] = useState<"h264_libx264" | "h264_nvenc" | "hevc_nvenc">("h264_libx264");
+  const [recordingEncoder, setRecordingEncoder] = useState<RecordingEncoder>("h264_libx264");
   const [popoverSide, setPopoverSide] = useState<"top" | "bottom">("top");
   const hudRef = useRef<HTMLDivElement | null>(null);
   const recordingSettingsButtonRef = useRef<HTMLButtonElement | null>(null);
   const mediaSettingsButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  const probeNativeEncoderOptions = () => {
+    window.electronAPI.getNativeCaptureEncoderOptions()
+      .then((result) => {
+        if (Array.isArray(result?.options) && result.options.length > 0) {
+          window.electronAPI.setHudEncoderOptions(result.options).catch(() => {});
+        }
+      })
+      .catch(() => {});
+  };
 
   useEffect(() => {
     const storedPreset = localStorage.getItem(RECORDING_PRESET_STORAGE_KEY);
@@ -125,6 +136,7 @@ export function LaunchWindow() {
 
   useEffect(() => {
     window.electronAPI.preloadHudPopoverWindows().catch(() => {});
+    probeNativeEncoderOptions();
   }, []);
 
   useEffect(() => {
@@ -139,7 +151,8 @@ export function LaunchWindow() {
       recordingFps: RecordingFps;
       customCursorEnabled: boolean;
       useLegacyRecorder: boolean;
-      recordingCodec: "h264_libx264" | "h264_nvenc" | "hevc_nvenc";
+      recordingEncoder: RecordingEncoder;
+      encoderOptions: Array<{ encoder: RecordingEncoder; label: string; hardware: "cpu" | "nvidia" | "amd" }>;
     }) => {
       setMicEnabled(settings.micEnabled);
       setSelectedMicDeviceId(settings.selectedMicDeviceId);
@@ -151,7 +164,7 @@ export function LaunchWindow() {
       setRecordingFps(settings.recordingFps);
       setCustomCursorEnabled(settings.customCursorEnabled);
       setUseLegacyRecorder(settings.useLegacyRecorder);
-      setRecordingCodec(settings.recordingCodec);
+      setRecordingEncoder(settings.recordingEncoder);
     };
 
     window.electronAPI.getHudSettings().then((result) => {
@@ -178,9 +191,9 @@ export function LaunchWindow() {
       recordingFps,
       customCursorEnabled,
       useLegacyRecorder,
-      recordingCodec,
+      recordingEncoder,
     }).catch(() => {});
-  }, [micEnabled, selectedMicDeviceId, micProcessingMode, cameraEnabled, cameraPreviewEnabled, selectedCameraDeviceId, recordingPreset, recordingFps, customCursorEnabled, useLegacyRecorder, recordingCodec]);
+  }, [micEnabled, selectedMicDeviceId, micProcessingMode, cameraEnabled, cameraPreviewEnabled, selectedCameraDeviceId, recordingPreset, recordingFps, customCursorEnabled, useLegacyRecorder, recordingEncoder]);
 
   useEffect(() => {
     let stream: MediaStream | null = null;
@@ -298,6 +311,9 @@ export function LaunchWindow() {
 
   const openHudPopover = (kind: "recording" | "media", buttonRef: RefObject<HTMLButtonElement | null>) => {
     if (recording) return;
+    if (kind === "recording") {
+      probeNativeEncoderOptions();
+    }
     const button = buttonRef.current;
     if (!button) return;
     const rect = button.getBoundingClientRect();
@@ -389,7 +405,7 @@ export function LaunchWindow() {
                       recordingFps,
                       customCursorEnabled,
                       useLegacyRecorder,
-                      recordingCodec,
+                      recordingEncoder,
                     })
                 : openSourceSelector
             }

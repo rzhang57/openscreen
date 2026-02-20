@@ -43,6 +43,13 @@ struct StartCapturePayload {
 }
 
 #[derive(Debug, Deserialize)]
+struct EncoderOptionsPayload {
+    platform: String,
+    #[serde(rename = "ffmpegPath")]
+    ffmpeg_path: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 struct CaptureSource {
     #[serde(rename = "type")]
     source_type: String,
@@ -55,7 +62,8 @@ struct VideoConfig {
     height: u32,
     fps: u32,
     bitrate: u32,
-    codec: String,
+    #[serde(alias = "codec")]
+    encoder: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -90,6 +98,12 @@ struct ActiveCapture {
 }
 
 fn main() {
+    eprintln!(
+        "[native-capture][sidecar] boot pid={} platform={} ready_for_stdio_protocol=true",
+        std::process::id(),
+        std::env::consts::OS
+    );
+
     let stdin = io::stdin();
     let mut stdout = io::stdout();
     let mut active_capture: Option<ActiveCapture> = None;
@@ -130,6 +144,7 @@ fn main() {
                 })),
                 error: None,
             },
+            "get_encoder_options" => handle_get_encoder_options(&request.id, request.payload),
             "start_capture" => handle_start(&request.id, request.payload, &mut active_capture),
             "stop_capture" => handle_stop(&request.id, request.payload, &mut active_capture),
             _ => Response {
@@ -139,6 +154,13 @@ fn main() {
                 error: Some(format!("unknown command: {}", request.cmd)),
             },
         };
+
+        if request.cmd == "init" || request.cmd == "get_encoder_options" {
+            eprintln!(
+                "[native-capture][sidecar] cmd={} id={} ok={}",
+                request.cmd, request.id, response.ok
+            );
+        }
 
         if writeln!(
             stdout,
@@ -151,6 +173,89 @@ fn main() {
             continue;
         }
         let _ = stdout.flush();
+    }
+}
+
+fn handle_get_encoder_options<'a>(id: &'a str, payload: Value) -> Response<'a> {
+    let payload: EncoderOptionsPayload = match serde_json::from_value(payload) {
+        Ok(v) => v,
+        Err(err) => {
+            return Response {
+                id,
+                ok: false,
+                payload: None,
+                error: Some(format!("invalid get_encoder_options payload: {err}")),
+            };
+        }
+    };
+
+    let mut options = vec![json!({
+        "codec": "h264_libx264",
+        "label": "x264 CPU",
+        "hardware": "cpu",
+    })];
+
+    if payload.platform != "win32" {
+        eprintln!(
+            "[encoder-options][sidecar] Non-win32 platform={}, returning CPU-only option",
+            payload.platform
+        );
+        return Response {
+            id,
+            ok: true,
+            payload: Some(json!({ "options": options })),
+            error: None,
+        };
+    }
+
+    let ffmpeg_exe = resolve_ffmpeg_path(payload.ffmpeg_path.as_deref());
+    eprintln!(
+        "[encoder-options][sidecar] ffmpeg_path_input={:?} resolved_ffmpeg={:?}",
+        payload.ffmpeg_path, ffmpeg_exe
+    );
+    if let Some(ffmpeg_exe) = ffmpeg_exe {
+        let gpu_vendors = detect_gpu_vendors_windows();
+        eprintln!("[encoder-options][sidecar] gpu_vendor_detection={:?}", gpu_vendors);
+        let has_nvenc = ffmpeg_has_encoder(&ffmpeg_exe, "h264_nvenc");
+        let has_amf = ffmpeg_has_encoder(&ffmpeg_exe, "h264_amf");
+        eprintln!(
+            "[encoder-options][sidecar] encoder_detection ffmpeg={} h264_nvenc={} h264_amf={}",
+            ffmpeg_exe, has_nvenc, has_amf
+        );
+        let allow_nvenc = match gpu_vendors {
+            Some((has_nvidia_gpu, _)) => has_nvidia_gpu,
+            None => true,
+        };
+        let allow_amf = match gpu_vendors {
+            Some((_, has_amd_gpu)) => has_amd_gpu,
+            None => true,
+        };
+        eprintln!(
+            "[encoder-options][sidecar] encoder_gating allow_nvenc={} allow_amf={}",
+            allow_nvenc, allow_amf
+        );
+        if has_nvenc && allow_nvenc {
+            options.push(json!({
+                "codec": "h264_nvenc",
+                "label": "NVIDIA H264 (GPU)",
+                "hardware": "nvidia",
+            }));
+        }
+        if has_amf && allow_amf {
+            options.push(json!({
+                "codec": "h264_amf",
+                "label": "AMD H264",
+                "hardware": "amd",
+            }));
+        }
+    }
+    eprintln!("[encoder-options][sidecar] returning options={}", json!({ "options": options }));
+
+    Response {
+        id,
+        ok: true,
+        payload: Some(json!({ "options": options })),
+        error: None,
     }
 }
 
@@ -254,10 +359,11 @@ fn handle_start<'a>(
         }
     }
 
-    let (video_codec, preset, extra_encoder_args): (&str, &str, Vec<&str>) = match start_payload.video.codec.as_str() {
-        "h264_nvenc" => ("h264_nvenc", "p2", vec!["-tune", "ll", "-rc", "vbr", "-cq", "27"]),
-        "hevc_nvenc" => ("hevc_nvenc", "p2", vec!["-tune", "ll", "-rc", "vbr", "-cq", "29"]),
-        _ => ("libx264", "ultrafast", vec!["-tune", "zerolatency"]),
+    let (video_codec, encoder_args): (&str, Vec<&str>) = match start_payload.video.encoder.as_str() {
+        "h264_nvenc" => ("h264_nvenc", vec!["-preset", "p2", "-tune", "ll", "-rc", "vbr", "-cq", "27"]),
+        "hevc_nvenc" => ("hevc_nvenc", vec!["-preset", "p2", "-tune", "ll", "-rc", "vbr", "-cq", "29"]),
+        "h264_amf" => ("h264_amf", vec![]),
+        _ => ("libx264", vec!["-preset", "ultrafast", "-tune", "zerolatency"]),
     };
 
     if start_payload.source.source_type == "screen" {
@@ -306,11 +412,9 @@ fn handle_start<'a>(
 
     command
         .arg("-c:v")
-        .arg(video_codec)
-        .arg("-preset")
-        .arg(preset);
+        .arg(video_codec);
 
-    for arg in extra_encoder_args {
+    for arg in encoder_args {
         command.arg(arg);
     }
 
@@ -483,4 +587,52 @@ fn resolve_ffmpeg_path(preferred: Option<&str>) -> Option<String> {
     } else {
         None
     }
+}
+
+fn ffmpeg_has_encoder(ffmpeg_exe: &str, encoder_name: &str) -> bool {
+    let output = Command::new(ffmpeg_exe)
+        .arg("-hide_banner")
+        .arg("-encoders")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output();
+
+    let output = match output {
+        Ok(v) => v,
+        Err(_) => return false,
+        };
+
+    let mut text = String::from_utf8_lossy(&output.stdout).to_string();
+    if !output.stderr.is_empty() {
+        text.push_str(&String::from_utf8_lossy(&output.stderr));
+    }
+    text.contains(encoder_name)
+}
+
+fn detect_gpu_vendors_windows() -> Option<(bool, bool)> {
+    if !cfg!(target_os = "windows") {
+        return None;
+    }
+
+    let output = Command::new("powershell")
+        .arg("-NoProfile")
+        .arg("-Command")
+        .arg("Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .ok()?;
+
+    let mut text = String::from_utf8_lossy(&output.stdout).to_string();
+    if !output.stderr.is_empty() {
+        text.push_str(&String::from_utf8_lossy(&output.stderr));
+    }
+    if text.trim().is_empty() {
+        return None;
+    }
+
+    let lower = text.to_lowercase();
+    let has_nvidia = lower.contains("nvidia");
+    let has_amd = lower.contains("amd") || lower.contains("radeon");
+    Some((has_nvidia, has_amd))
 }
