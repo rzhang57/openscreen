@@ -732,7 +732,7 @@ const hudSettings = {
   recordingFps: 60,
   customCursorEnabled: true,
   useLegacyRecorder: false,
-  recordingCodec: "h264_nvenc"
+  recordingCodec: "h264_libx264"
 };
 function resolveCaptureRegionForDisplay(displayId) {
   if (!displayId) return void 0;

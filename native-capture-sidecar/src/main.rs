@@ -331,6 +331,32 @@ fn handle_start<'a>(
             };
         }
     };
+    let mut child = child;
+
+    // Detect immediate ffmpeg startup failures (for example unavailable NVENC encoder)
+    // so the renderer can fail fast instead of opening an unreadable output file.
+    thread::sleep(Duration::from_millis(350));
+    match child.try_wait() {
+        Ok(Some(status)) => {
+            return Response {
+                id,
+                ok: false,
+                payload: None,
+                error: Some(format!(
+                    "ffmpeg exited immediately during startup (status={status}). Try h264_libx264."
+                )),
+            };
+        }
+        Ok(None) => {}
+        Err(err) => {
+            return Response {
+                id,
+                ok: false,
+                payload: None,
+                error: Some(format!("failed to verify ffmpeg startup: {err}")),
+            };
+        }
+    }
 
     *active_capture = Some(ActiveCapture {
         session_id: start_payload.session_id,

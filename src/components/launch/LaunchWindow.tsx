@@ -30,7 +30,7 @@ export function LaunchWindow() {
   const [recordingFps, setRecordingFps] = useState<RecordingFps>(60);
   const [customCursorEnabled, setCustomCursorEnabled] = useState(true);
   const [useLegacyRecorder, setUseLegacyRecorder] = useState(false);
-  const [recordingCodec, setRecordingCodec] = useState<"h264_libx264" | "h264_nvenc" | "hevc_nvenc">("h264_nvenc");
+  const [recordingCodec, setRecordingCodec] = useState<"h264_libx264" | "h264_nvenc" | "hevc_nvenc">("h264_libx264");
   const [popoverSide, setPopoverSide] = useState<"top" | "bottom">("top");
   const hudRef = useRef<HTMLDivElement | null>(null);
   const recordingSettingsButtonRef = useRef<HTMLButtonElement | null>(null);

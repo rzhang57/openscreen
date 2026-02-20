@@ -44,7 +44,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
   const cameraStartTime = useRef<number | null>(null);
   const nativeCaptureActiveRef = useRef(false);
   const nativeCustomCursorEnabledRef = useRef(true);
-  const nativeRecordingCodecRef = useRef<"h264_libx264" | "h264_nvenc" | "hevc_nvenc">("h264_nvenc");
+  const nativeRecordingCodecRef = useRef<"h264_libx264" | "h264_nvenc" | "hevc_nvenc">("h264_libx264");
 
   const getCaptureProfile = (options: RecorderOptions): CaptureProfile => {
     const preset = options.recordingPreset ?? "quality";
@@ -313,13 +313,13 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 
       const canTryNativeCapture = typeof window.electronAPI?.nativeCaptureStart === "function";
       nativeCustomCursorEnabledRef.current = Boolean(options.customCursorEnabled);
-      nativeRecordingCodecRef.current = options.recordingCodec || "h264_nvenc";
+      nativeRecordingCodecRef.current = options.recordingCodec || "h264_libx264";
       const sourceType = typeof selectedSource.id === "string" && selectedSource.id.startsWith("window:")
         ? "window"
         : "screen";
       const shouldPreferNative = Boolean(options.customCursorEnabled) || !Boolean(options.useLegacyRecorder);
       if (canTryNativeCapture && shouldPreferNative) {
-        const selectedCodec = options.recordingCodec || "h264_nvenc";
+        const selectedCodec = options.recordingCodec || "h264_libx264";
         let nativeBitrate = computeBitrate(captureProfile.width, captureProfile.height, captureProfile.fps);
         if (selectedCodec === "h264_nvenc") {
           nativeBitrate = Math.max(8_000_000, Math.round(nativeBitrate * 0.8));
@@ -661,7 +661,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
       recordingFps: 60,
       customCursorEnabled: true,
       useLegacyRecorder: false,
-      recordingCodec: "h264_nvenc",
+      recordingCodec: "h264_libx264",
     };
     startRecording(resolvedOptions);
   };
