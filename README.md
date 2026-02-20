@@ -1,5 +1,5 @@
 # velocity
-open source screen recording built to deliver beautiful, smooth, desktop videos quickly
+open source screen recording built to deliver beautiful, smooth videos quickly
 
 ## stack
 - TypeScript
