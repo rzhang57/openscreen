@@ -1,8 +1,13 @@
-## about
-openscreen is an open source screen recording software built to deliver beautiful, smooth, desktop videos for free
+# openscreen
+open source screen recording built to deliver beautiful, smooth, desktop videos
 
-## features
-- record your screen (or a specific window), microphone input, and your webcam simultaneously
+## stack
+- TypeScript
+- Electron
+- React
+
+## current features
+- record screen (or a specific window), microphone input, and your webcam simultaneously
 - built in editor allowing you to:
     - add smooth zoom in/out animations with custom duration, position, depth
     - crop viewable video area
@@ -12,15 +17,15 @@ openscreen is an open source screen recording software built to deliver beautifu
     - add annotations (text, arrows, images)
 - export final edit to different aspect ratios, resolutions, formats
 
-## built using
-- typescript
-- electron
-- react
+## soon
+- automatic zoom in/out animations with option to manually edit
+- bug fixes
+- more customizable editor
 
-## running the application
+## getting started
 ```npm run dev```
 
-## installation
+## pre-release distributions
 no official releases yet since development is still underway. if you'd like to install it on your computer in its current state, run
 ```
 npm run build:win  # windows
