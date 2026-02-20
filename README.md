@@ -34,6 +34,7 @@ no official releases yet since development is still underway. if you'd like to i
 npm run build:win  # windows
 npm run build:mac  # macos
 npm run build:linux # linux
+```
 
 ## credit/ shoutout
 this repo is a fork of https://github.com/siddharthvaddem/openscreen which served as a strong initial foundation for the project. check it out!
