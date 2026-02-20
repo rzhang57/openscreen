@@ -1,11 +1,13 @@
 var __defProp = Object.defineProperty;
 var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
 var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
-import { ipcMain, screen, BrowserWindow, app, desktopCapturer, shell, dialog, nativeImage, Tray, Menu } from "electron";
+import { ipcMain, screen, BrowserWindow, app, desktopCapturer, shell, dialog, nativeImage, session, Tray, Menu } from "electron";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import fs from "node:fs/promises";
+import fs$1 from "node:fs/promises";
+import fs from "node:fs";
 import { createRequire } from "node:module";
+import { spawn } from "node:child_process";
 const __dirname$2 = path.dirname(fileURLToPath(import.meta.url));
 const APP_ROOT = path.join(__dirname$2, "..");
 const VITE_DEV_SERVER_URL$1 = process.env["VITE_DEV_SERVER_URL"];
@@ -311,7 +313,20 @@ function resolveSourceBounds(sourceKind, sourceDisplayId) {
   const byDisplayId = displays.find((display) => String(display.id) === sourceDisplayId);
   const targetDisplay = byDisplayId ?? screen.getPrimaryDisplay();
   const { x, y, width, height } = targetDisplay.bounds;
-  return { x, y, width, height };
+  const dipToScreen = (point) => {
+    const maybeFn = screen.dipToScreenPoint;
+    return typeof maybeFn === "function" ? maybeFn(point) : point;
+  };
+  const topLeft = dipToScreen({ x, y });
+  const bottomRight = dipToScreen({ x: x + width, y: y + height });
+  const physicalWidth = Math.max(1, bottomRight.x - topLeft.x);
+  const physicalHeight = Math.max(1, bottomRight.y - topLeft.y);
+  return {
+    x: topLeft.x,
+    y: topLeft.y,
+    width: physicalWidth,
+    height: physicalHeight
+  };
 }
 function categorizeKey(raw) {
   if (raw.ctrlKey || raw.altKey || raw.metaKey) return "shortcut";
@@ -324,6 +339,15 @@ function categorizeKey(raw) {
     return "printable";
   }
   return "other";
+}
+function resolveCursorType(event, eventType) {
+  if (eventType === "mouseDown" || eventType === "mouseUp") {
+    return event.button === 2 ? "default" : "pointer";
+  }
+  if (eventType === "wheel") {
+    return Math.abs(Number(event.deltaX ?? 0)) + Math.abs(Number(event.deltaY ?? 0)) > 0 ? "default" : "pointer";
+  }
+  return "default";
 }
 class InputTrackingService {
   constructor() {
@@ -361,7 +385,8 @@ class InputTrackingService {
           ts: Date.now(),
           x: Number(event.x ?? 0),
           y: Number(event.y ?? 0),
-          button: Number(event.button ?? 0)
+          button: Number(event.button ?? 0),
+          cursorType: resolveCursorType(event, "mouseDown")
         });
       },
       onMouseUp: (event) => {
@@ -370,7 +395,8 @@ class InputTrackingService {
           ts: Date.now(),
           x: Number(event.x ?? 0),
           y: Number(event.y ?? 0),
-          button: Number(event.button ?? 0)
+          button: Number(event.button ?? 0),
+          cursorType: resolveCursorType(event, "mouseUp")
         });
       },
       onMouseMove: (event) => {
@@ -392,7 +418,8 @@ class InputTrackingService {
           type: "mouseMoveSampled",
           ts: now,
           x,
-          y
+          y,
+          cursorType: "default"
         });
       },
       onWheel: (event) => {
@@ -404,7 +431,8 @@ class InputTrackingService {
           x: Number(event.x ?? 0),
           y: Number(event.y ?? 0),
           deltaX,
-          deltaY
+          deltaY,
+          cursorType: resolveCursorType({ deltaX, deltaY }, "wheel")
         });
       },
       onKeyDown: (event) => {
@@ -449,11 +477,249 @@ class InputTrackingService {
     incrementStats(this.stats, event);
   }
 }
+class NativeCaptureService {
+  constructor() {
+    __publicField(this, "process", null);
+    __publicField(this, "buffer", "");
+    __publicField(this, "pending", /* @__PURE__ */ new Map());
+    __publicField(this, "status", "idle");
+    __publicField(this, "statusMessage", "");
+    __publicField(this, "currentSessionId", null);
+    __publicField(this, "startedAtMs", null);
+    __publicField(this, "sequence", 0);
+  }
+  async start(payload) {
+    if (this.status === "recording" || this.status === "starting") {
+      return { success: false, message: "Native capture already in progress" };
+    }
+    const boot = await this.ensureProcess();
+    if (!boot.success) {
+      return boot;
+    }
+    this.status = "starting";
+    this.statusMessage = "";
+    this.currentSessionId = payload.sessionId;
+    this.startedAtMs = Date.now();
+    try {
+      const response = await this.sendRequest({
+        id: this.nextId("start"),
+        cmd: "start_capture",
+        payload
+      }, 1e4);
+      if (!response.ok) {
+        this.status = "error";
+        this.statusMessage = response.error || "Failed to start native capture";
+        return { success: false, message: this.statusMessage };
+      }
+      this.status = "recording";
+      this.statusMessage = "";
+      return { success: true };
+    } catch (error) {
+      this.status = "error";
+      this.statusMessage = error instanceof Error ? error.message : "Failed to start native capture";
+      return { success: false, message: this.statusMessage };
+    }
+  }
+  async stop(payload) {
+    var _a, _b, _c, _d, _e, _f;
+    if (this.status !== "recording" && this.status !== "starting") {
+      return { success: false, message: "Native capture is not active" };
+    }
+    if (!this.process) {
+      this.status = "idle";
+      return { success: false, message: "Native capture process not available" };
+    }
+    this.status = "stopping";
+    try {
+      const response = await this.sendRequest({
+        id: this.nextId("stop"),
+        cmd: "stop_capture",
+        payload
+      }, 2e4);
+      if (!response.ok) {
+        this.status = "error";
+        this.statusMessage = response.error || "Failed to stop native capture";
+        return { success: false, message: this.statusMessage };
+      }
+      const outputPath = typeof ((_a = response.payload) == null ? void 0 : _a.outputPath) === "string" ? response.payload.outputPath : "";
+      if (!outputPath) {
+        this.status = "error";
+        this.statusMessage = "Native capture did not return output path";
+        return { success: false, message: this.statusMessage };
+      }
+      const stats = fs.existsSync(outputPath) ? fs.statSync(outputPath) : void 0;
+      const result = {
+        outputPath,
+        durationMs: numberOrUndefined((_b = response.payload) == null ? void 0 : _b.durationMs),
+        width: numberOrUndefined((_c = response.payload) == null ? void 0 : _c.width),
+        height: numberOrUndefined((_d = response.payload) == null ? void 0 : _d.height),
+        fpsActual: numberOrUndefined((_e = response.payload) == null ? void 0 : _e.fpsActual),
+        bytes: numberOrUndefined((_f = response.payload) == null ? void 0 : _f.bytes) ?? (stats == null ? void 0 : stats.size)
+      };
+      this.status = "idle";
+      this.statusMessage = "";
+      this.currentSessionId = null;
+      this.startedAtMs = null;
+      return { success: true, result };
+    } catch (error) {
+      this.status = "error";
+      this.statusMessage = error instanceof Error ? error.message : "Failed to stop native capture";
+      return { success: false, message: this.statusMessage };
+    }
+  }
+  getStatus(sessionId) {
+    return {
+      status: this.status,
+      message: this.statusMessage || void 0,
+      sessionId: sessionId || this.currentSessionId || void 0,
+      startedAtMs: this.startedAtMs || void 0
+    };
+  }
+  dispose() {
+    for (const [, pending] of this.pending.entries()) {
+      clearTimeout(pending.timeout);
+      pending.reject(new Error("Native capture service disposed"));
+    }
+    this.pending.clear();
+    if (this.process && !this.process.killed) {
+      this.process.kill();
+    }
+    this.process = null;
+    this.buffer = "";
+    this.status = "idle";
+    this.statusMessage = "";
+    this.currentSessionId = null;
+    this.startedAtMs = null;
+  }
+  async ensureProcess() {
+    if (this.process && !this.process.killed) {
+      return { success: true };
+    }
+    const executable = resolveSidecarExecutablePath();
+    if (!executable) {
+      return { success: false, message: "Native capture sidecar not found. Build sidecar binaries first." };
+    }
+    const child = spawn(executable, [], {
+      stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true
+    });
+    this.process = child;
+    this.buffer = "";
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      this.consumeStdout(chunk);
+    });
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk) => {
+      console.warn("[native-capture][sidecar][stderr]", chunk.trim());
+    });
+    child.on("exit", (code, signal) => {
+      const message = `Native capture sidecar exited (code=${code ?? "null"}, signal=${signal ?? "null"})`;
+      for (const [, pending] of this.pending.entries()) {
+        clearTimeout(pending.timeout);
+        pending.reject(new Error(message));
+      }
+      this.pending.clear();
+      this.process = null;
+      if (this.status !== "idle") {
+        this.status = "error";
+        this.statusMessage = message;
+      }
+    });
+    try {
+      const init = await this.sendRequest({
+        id: this.nextId("init"),
+        cmd: "init",
+        payload: { platform: process.platform }
+      }, 5e3);
+      if (!init.ok) {
+        this.status = "error";
+        this.statusMessage = init.error || "Native capture sidecar init failed";
+        return { success: false, message: this.statusMessage };
+      }
+      return { success: true };
+    } catch (error) {
+      this.status = "error";
+      this.statusMessage = error instanceof Error ? error.message : "Native capture init failed";
+      return { success: false, message: this.statusMessage };
+    }
+  }
+  consumeStdout(chunk) {
+    this.buffer += chunk;
+    const lines = this.buffer.split(/\r?\n/);
+    this.buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      let parsed;
+      try {
+        parsed = JSON.parse(trimmed);
+      } catch {
+        console.warn("[native-capture][sidecar] Invalid JSON:", trimmed);
+        continue;
+      }
+      if (parsed.id) {
+        const pending = this.pending.get(parsed.id);
+        if (pending) {
+          clearTimeout(pending.timeout);
+          this.pending.delete(parsed.id);
+          pending.resolve(parsed);
+          continue;
+        }
+      }
+      if (parsed.event === "capture_error") {
+        this.status = "error";
+        this.statusMessage = parsed.error || "Native capture sidecar reported error";
+      }
+    }
+  }
+  async sendRequest(request, timeoutMs) {
+    if (!this.process || this.process.killed) {
+      throw new Error("Native capture process is not running");
+    }
+    const serialized = `${JSON.stringify(request)}
+`;
+    const promise = new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pending.delete(request.id);
+        reject(new Error(`Native capture request timed out (${request.cmd})`));
+      }, timeoutMs);
+      this.pending.set(request.id, { resolve, reject, timeout });
+    });
+    this.process.stdin.write(serialized);
+    return await promise;
+  }
+  nextId(prefix) {
+    this.sequence += 1;
+    return `${prefix}-${Date.now()}-${this.sequence}`;
+  }
+}
+function resolveSidecarExecutablePath() {
+  const fileName = process.platform === "win32" ? "native-capture-sidecar.exe" : "native-capture-sidecar";
+  const candidates = app.isPackaged ? [
+    path.join(process.resourcesPath, "native-capture", process.platform, fileName),
+    path.join(process.resourcesPath, "native-capture", fileName)
+  ] : [
+    path.join(app.getAppPath(), "native-capture-sidecar", "bin", process.platform, fileName),
+    path.join(app.getAppPath(), "native-capture-sidecar", "target", "debug", fileName),
+    path.join(app.getAppPath(), "native-capture-sidecar", "target", "release", fileName)
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+function numberOrUndefined(value) {
+  return typeof value === "number" && Number.isFinite(value) ? value : void 0;
+}
 const __dirname$1 = path.dirname(fileURLToPath(import.meta.url));
 let selectedSource = null;
 let currentVideoPath = null;
 let currentRecordingSession = null;
 const inputTrackingService = new InputTrackingService();
+const nativeCaptureService = new NativeCaptureService();
 const DEFAULT_EXPORTS_DIR = path.join(app.getPath("documents"), "OpenScreen Exports");
 const hudSettings = {
   micEnabled: true,
@@ -463,8 +729,41 @@ const hudSettings = {
   cameraPreviewEnabled: true,
   selectedCameraDeviceId: "",
   recordingPreset: "quality",
-  recordingFps: 60
+  recordingFps: 60,
+  customCursorEnabled: true,
+  useLegacyRecorder: false,
+  recordingCodec: "h264_nvenc"
 };
+function resolveCaptureRegionForDisplay(displayId) {
+  if (!displayId) return void 0;
+  const displays = screen.getAllDisplays();
+  const display = displays.find((item) => String(item.id) === displayId);
+  if (!display) return void 0;
+  const dipToScreenPoint = (point) => {
+    const maybe = screen.dipToScreenPoint;
+    return typeof maybe === "function" ? maybe(point) : point;
+  };
+  const topLeft = dipToScreenPoint({ x: display.bounds.x, y: display.bounds.y });
+  const bottomRight = dipToScreenPoint({
+    x: display.bounds.x + display.bounds.width,
+    y: display.bounds.y + display.bounds.height
+  });
+  return {
+    x: topLeft.x,
+    y: topLeft.y,
+    width: Math.max(1, bottomRight.x - topLeft.x),
+    height: Math.max(1, bottomRight.y - topLeft.y)
+  };
+}
+function getSelectedSourceForDisplayMedia() {
+  if (!selectedSource || typeof selectedSource !== "object") {
+    return null;
+  }
+  return {
+    id: typeof selectedSource.id === "string" ? selectedSource.id : void 0,
+    display_id: typeof selectedSource.display_id === "string" ? selectedSource.display_id : void 0
+  };
+}
 let recordingPopoverWindow = null;
 let mediaPopoverWindow = null;
 const popoverAnchors = {};
@@ -476,7 +775,7 @@ async function loadTelemetryForVideo(videoPath) {
   var _a;
   const telemetryPath = getTelemetryFilePath(videoPath);
   try {
-    const raw = await fs.readFile(telemetryPath, "utf-8");
+    const raw = await fs$1.readFile(telemetryPath, "utf-8");
     const parsed = JSON.parse(raw);
     if (parsed && parsed.version === 1 && Array.isArray(parsed.events)) {
       console.info("[auto-zoom][main] Telemetry sidecar loaded", {
@@ -525,7 +824,7 @@ function registerIpcHandlers(createEditorWindow2, createHudOverlayWindow2, creat
     delete popoverAnchors.media;
   };
   const computePopoverBounds = (mainBounds, kind, anchorRect, side) => {
-    const popoverSize = kind === "recording" ? { width: 340, height: 230 } : { width: 360, height: 290 };
+    const popoverSize = kind === "recording" ? { width: 420, height: 560 } : { width: 360, height: 290 };
     const margin = 8;
     const absoluteAnchor = {
       x: mainBounds.x + anchorRect.x,
@@ -620,7 +919,7 @@ function registerIpcHandlers(createEditorWindow2, createHudOverlayWindow2, creat
     return { success: true };
   };
   const ensureDirectoryExists = async (directoryPath) => {
-    await fs.mkdir(directoryPath, { recursive: true });
+    await fs$1.mkdir(directoryPath, { recursive: true });
   };
   const getUniqueFilePath = async (directoryPath, fileName) => {
     const parsed = path.parse(fileName);
@@ -628,7 +927,7 @@ function registerIpcHandlers(createEditorWindow2, createHudOverlayWindow2, creat
     let suffix = 1;
     while (true) {
       try {
-        await fs.access(candidate);
+        await fs$1.access(candidate);
         candidate = path.join(directoryPath, `${parsed.name} (${suffix})${parsed.ext}`);
         suffix += 1;
       } catch {
@@ -639,7 +938,7 @@ function registerIpcHandlers(createEditorWindow2, createHudOverlayWindow2, creat
   const deleteFileIfExists = async (filePath) => {
     if (!filePath) return;
     try {
-      await fs.unlink(filePath);
+      await fs$1.unlink(filePath);
       console.info("[editor][main] Deleted recording asset", { filePath });
     } catch {
       console.warn("[editor][main] Could not delete recording asset (ignored)", { filePath });
@@ -734,7 +1033,7 @@ function registerIpcHandlers(createEditorWindow2, createHudOverlayWindow2, creat
   ipcMain.handle("store-recorded-video", async (_, videoData, fileName) => {
     try {
       const videoPath = path.join(RECORDINGS_DIR, fileName);
-      await fs.writeFile(videoPath, Buffer.from(videoData));
+      await fs$1.writeFile(videoPath, Buffer.from(videoData));
       currentVideoPath = videoPath;
       currentRecordingSession = null;
       return {
@@ -795,8 +1094,42 @@ function registerIpcHandlers(createEditorWindow2, createHudOverlayWindow2, creat
       hudSettings.recordingPreset = partial.recordingPreset;
     }
     if (partial.recordingFps === 60 || partial.recordingFps === 120) hudSettings.recordingFps = partial.recordingFps;
+    if (typeof partial.customCursorEnabled === "boolean") {
+      hudSettings.customCursorEnabled = partial.customCursorEnabled;
+      if (partial.customCursorEnabled) {
+        hudSettings.useLegacyRecorder = false;
+      }
+    }
+    if (typeof partial.useLegacyRecorder === "boolean") {
+      hudSettings.useLegacyRecorder = partial.useLegacyRecorder;
+      if (partial.useLegacyRecorder) {
+        hudSettings.customCursorEnabled = false;
+      }
+    }
+    if (partial.recordingCodec === "h264_libx264" || partial.recordingCodec === "h264_nvenc" || partial.recordingCodec === "hevc_nvenc") {
+      hudSettings.recordingCodec = partial.recordingCodec;
+    }
     broadcastHudSettings();
     return { success: true, settings: hudSettings };
+  });
+  ipcMain.handle("native-capture-start", async (_, payload) => {
+    var _a, _b;
+    const packagedFfmpeg = app.isPackaged ? path.join(process.resourcesPath, "native-capture", process.platform, process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg") : path.join(app.getAppPath(), "native-capture-sidecar", "bin", process.platform, process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg");
+    const sourceDisplayId = ((_a = payload.source) == null ? void 0 : _a.displayId) || (typeof (selectedSource == null ? void 0 : selectedSource.display_id) === "string" ? selectedSource.display_id : void 0);
+    const captureRegion = ((_b = payload.source) == null ? void 0 : _b.type) === "screen" ? resolveCaptureRegionForDisplay(sourceDisplayId) : void 0;
+    const normalizedPayload = {
+      ...payload,
+      outputPath: path.isAbsolute(payload.outputPath) ? payload.outputPath : path.join(RECORDINGS_DIR, payload.outputPath),
+      ffmpegPath: payload.ffmpegPath || (fs.existsSync(packagedFfmpeg) ? packagedFfmpeg : void 0),
+      captureRegion: payload.captureRegion || captureRegion
+    };
+    return await nativeCaptureService.start(normalizedPayload);
+  });
+  ipcMain.handle("native-capture-stop", async (_, payload) => {
+    return await nativeCaptureService.stop(payload);
+  });
+  ipcMain.handle("native-capture-status", (_, sessionId) => {
+    return { success: true, ...nativeCaptureService.getStatus(sessionId) };
   });
   ipcMain.handle("open-hud-popover-window", (_, payload) => {
     if (payload.kind !== "recording" && payload.kind !== "media") {
@@ -914,18 +1247,18 @@ function registerIpcHandlers(createEditorWindow2, createHudOverlayWindow2, creat
         hasTelemetry: Boolean(payload.inputTelemetry)
       });
       const screenVideoPath = path.join(RECORDINGS_DIR, payload.screenFileName);
-      await fs.writeFile(screenVideoPath, Buffer.from(payload.screenVideoData));
+      await fs$1.writeFile(screenVideoPath, Buffer.from(payload.screenVideoData));
       let cameraVideoPath;
       if (payload.cameraVideoData && payload.cameraFileName) {
         cameraVideoPath = path.join(RECORDINGS_DIR, payload.cameraFileName);
-        await fs.writeFile(cameraVideoPath, Buffer.from(payload.cameraVideoData));
+        await fs$1.writeFile(cameraVideoPath, Buffer.from(payload.cameraVideoData));
       }
       let inputTelemetryPath;
       let inputTelemetry;
       if (payload.inputTelemetry) {
         const telemetryFileName = payload.inputTelemetryFileName || `${path.parse(payload.screenFileName).name}.telemetry.json`;
         inputTelemetryPath = path.join(RECORDINGS_DIR, telemetryFileName);
-        await fs.writeFile(inputTelemetryPath, JSON.stringify(payload.inputTelemetry), "utf-8");
+        await fs$1.writeFile(inputTelemetryPath, JSON.stringify(payload.inputTelemetry), "utf-8");
         inputTelemetry = payload.inputTelemetry;
         console.info("[auto-zoom][main] Telemetry sidecar saved", {
           inputTelemetryPath,
@@ -937,14 +1270,14 @@ function registerIpcHandlers(createEditorWindow2, createHudOverlayWindow2, creat
           sessionId: typeof payload.session.id === "string" ? payload.session.id : void 0
         });
       }
-      const session = {
+      const session2 = {
         ...payload.session,
         screenVideoPath,
         ...cameraVideoPath ? { cameraVideoPath } : {},
         ...inputTelemetryPath ? { inputTelemetryPath } : {},
         ...inputTelemetry ? { inputTelemetry } : {}
       };
-      currentRecordingSession = session;
+      currentRecordingSession = session2;
       currentVideoPath = screenVideoPath;
       console.info("[auto-zoom][main] Recording session stored in memory", {
         sessionId: typeof payload.session.id === "string" ? payload.session.id : void 0,
@@ -953,7 +1286,7 @@ function registerIpcHandlers(createEditorWindow2, createHudOverlayWindow2, creat
       });
       return {
         success: true,
-        session,
+        session: session2,
         message: "Recording session stored successfully"
       };
     } catch (error) {
@@ -965,9 +1298,53 @@ function registerIpcHandlers(createEditorWindow2, createHudOverlayWindow2, creat
       };
     }
   });
+  ipcMain.handle("store-native-recording-session", async (_, payload) => {
+    try {
+      let finalScreenVideoPath = payload.screenVideoPath;
+      if (!payload.screenVideoPath.startsWith(RECORDINGS_DIR)) {
+        const targetName = `${path.parse(payload.screenVideoPath).name}.mp4`;
+        finalScreenVideoPath = await getUniqueFilePath(RECORDINGS_DIR, targetName);
+        await fs$1.copyFile(payload.screenVideoPath, finalScreenVideoPath);
+      }
+      let cameraVideoPath;
+      if (payload.cameraVideoData && payload.cameraFileName) {
+        cameraVideoPath = path.join(RECORDINGS_DIR, payload.cameraFileName);
+        await fs$1.writeFile(cameraVideoPath, Buffer.from(payload.cameraVideoData));
+      }
+      let inputTelemetryPath;
+      let inputTelemetry;
+      if (payload.inputTelemetry) {
+        const telemetryFileName = payload.inputTelemetryFileName || `${path.parse(finalScreenVideoPath).name}.telemetry.json`;
+        inputTelemetryPath = path.join(RECORDINGS_DIR, telemetryFileName);
+        await fs$1.writeFile(inputTelemetryPath, JSON.stringify(payload.inputTelemetry), "utf-8");
+        inputTelemetry = payload.inputTelemetry;
+      }
+      const session2 = {
+        ...payload.session,
+        screenVideoPath: finalScreenVideoPath,
+        ...cameraVideoPath ? { cameraVideoPath } : {},
+        ...inputTelemetryPath ? { inputTelemetryPath } : {},
+        ...inputTelemetry ? { inputTelemetry } : {}
+      };
+      currentRecordingSession = session2;
+      currentVideoPath = finalScreenVideoPath;
+      return {
+        success: true,
+        session: session2,
+        message: "Native recording session stored successfully"
+      };
+    } catch (error) {
+      console.error("[native-capture][main] Failed to store native recording session", error);
+      return {
+        success: false,
+        message: "Failed to store native recording session",
+        error: String(error)
+      };
+    }
+  });
   ipcMain.handle("get-recorded-video-path", async () => {
     try {
-      const files = await fs.readdir(RECORDINGS_DIR);
+      const files = await fs$1.readdir(RECORDINGS_DIR);
       const videoFiles = files.filter((file) => file.endsWith(".webm"));
       if (videoFiles.length === 0) {
         return { success: false, message: "No recorded video found" };
@@ -1026,7 +1403,7 @@ function registerIpcHandlers(createEditorWindow2, createHudOverlayWindow2, creat
           message: "Export cancelled"
         };
       }
-      await fs.writeFile(result.filePath, Buffer.from(videoData));
+      await fs$1.writeFile(result.filePath, Buffer.from(videoData));
       return {
         success: true,
         path: result.filePath,
@@ -1072,7 +1449,7 @@ function registerIpcHandlers(createEditorWindow2, createHudOverlayWindow2, creat
     try {
       await ensureDirectoryExists(directoryPath);
       const targetPath = await getUniqueFilePath(directoryPath, fileName);
-      await fs.writeFile(targetPath, Buffer.from(videoData));
+      await fs$1.writeFile(targetPath, Buffer.from(videoData));
       return {
         success: true,
         path: targetPath,
@@ -1158,13 +1535,13 @@ function registerIpcHandlers(createEditorWindow2, createHudOverlayWindow2, creat
     currentRecordingSession = null;
     return { success: true };
   });
-  ipcMain.handle("set-current-recording-session", (_, session) => {
-    currentRecordingSession = session;
-    currentVideoPath = typeof session.screenVideoPath === "string" ? session.screenVideoPath : null;
+  ipcMain.handle("set-current-recording-session", (_, session2) => {
+    currentRecordingSession = session2;
+    currentVideoPath = typeof session2.screenVideoPath === "string" ? session2.screenVideoPath : null;
     console.info("[auto-zoom][main] set-current-recording-session", {
-      sessionId: typeof session.id === "string" ? session.id : void 0,
-      hasTelemetry: Boolean(session.inputTelemetry),
-      telemetryPath: typeof session.inputTelemetryPath === "string" ? session.inputTelemetryPath : void 0
+      sessionId: typeof session2.id === "string" ? session2.id : void 0,
+      hasTelemetry: Boolean(session2.inputTelemetry),
+      telemetryPath: typeof session2.inputTelemetryPath === "string" ? session2.inputTelemetryPath : void 0
     });
     return { success: true };
   });
@@ -1182,13 +1559,24 @@ function registerIpcHandlers(createEditorWindow2, createHudOverlayWindow2, creat
 }
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const RECORDINGS_DIR = path.join(app.getPath("userData"), "recordings");
+const SESSION_DATA_DIR = path.join(app.getPath("temp"), "openscreen-session-data");
+app.commandLine.appendSwitch("disable-gpu-shader-disk-cache");
+app.commandLine.appendSwitch("disk-cache-dir", path.join(SESSION_DATA_DIR, "Cache"));
+app.setPath("sessionData", SESSION_DATA_DIR);
 async function ensureRecordingsDir() {
   try {
-    await fs.mkdir(RECORDINGS_DIR, { recursive: true });
+    await fs$1.mkdir(RECORDINGS_DIR, { recursive: true });
     console.log("RECORDINGS_DIR:", RECORDINGS_DIR);
     console.log("User Data Path:", app.getPath("userData"));
   } catch (error) {
     console.error("Failed to create recordings directory:", error);
+  }
+}
+async function ensureSessionDataDir() {
+  try {
+    await fs$1.mkdir(SESSION_DATA_DIR, { recursive: true });
+  } catch (error) {
+    console.error("Failed to create session data directory:", error);
   }
 }
 process.env.APP_ROOT = path.join(__dirname, "..");
@@ -1298,6 +1686,34 @@ app.on("activate", () => {
   }
 });
 app.whenReady().then(async () => {
+  await ensureSessionDataDir();
+  session.defaultSession.setDisplayMediaRequestHandler(async (_request, callback) => {
+    try {
+      const selected = getSelectedSourceForDisplayMedia();
+      const sources = await desktopCapturer.getSources({
+        types: ["screen", "window"],
+        thumbnailSize: { width: 0, height: 0 },
+        fetchWindowIcons: false
+      });
+      let target = (selected == null ? void 0 : selected.id) ? sources.find((source) => source.id === selected.id) : void 0;
+      if (!target && (selected == null ? void 0 : selected.display_id)) {
+        target = sources.find((source) => source.display_id === selected.display_id && source.id.startsWith("screen:"));
+      }
+      if (!target) {
+        target = sources.find((source) => source.id.startsWith("screen:")) || sources[0];
+      }
+      if (!target) {
+        callback({});
+        return;
+      }
+      callback({
+        video: target
+      });
+    } catch (error) {
+      console.error("Display media handler failed:", error);
+      callback({});
+    }
+  }, { useSystemPicker: false });
   const { ipcMain: ipcMain2 } = await import("electron");
   ipcMain2.on("hud-overlay-close", () => {
     app.quit();

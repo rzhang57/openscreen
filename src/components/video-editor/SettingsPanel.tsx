@@ -64,6 +64,9 @@ interface SettingsPanelProps {
   onMotionBlurChange?: (enabled: boolean) => void;
   cursorTrailEnabled?: boolean;
   onCursorTrailChange?: (enabled: boolean) => void;
+  customCursorEnabled?: boolean;
+  customCursorSize?: number;
+  onCustomCursorSizeChange?: (value: number) => void;
   borderRadius?: number;
   onBorderRadiusChange?: (radius: number) => void;
   padding?: number;
@@ -119,6 +122,9 @@ export function SettingsPanel({
   onMotionBlurChange, 
   cursorTrailEnabled = false,
   onCursorTrailChange,
+  customCursorEnabled = false,
+  customCursorSize = 1,
+  onCustomCursorSizeChange,
   borderRadius = 0, 
   onBorderRadiusChange, 
   padding = 50, 
@@ -355,6 +361,23 @@ export function SettingsPanel({
                   />
                 </div>
               </div>
+
+              {customCursorEnabled && (
+                <div className="p-2 rounded-lg bg-white/5 border border-white/5 mb-3">
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="text-[10px] font-medium text-slate-300">Custom Cursor Size</div>
+                    <span className="text-[10px] text-slate-500 font-mono">{customCursorSize.toFixed(2)}x</span>
+                  </div>
+                  <Slider
+                    value={[customCursorSize]}
+                    onValueChange={(values) => onCustomCursorSizeChange?.(values[0])}
+                    min={0.7}
+                    max={10}
+                    step={0.05}
+                    className="w-full [&_[role=slider]]:bg-[#34B27B] [&_[role=slider]]:border-[#34B27B] [&_[role=slider]]:h-3 [&_[role=slider]]:w-3"
+                  />
+                </div>
+              )}
               
               <div className="grid grid-cols-2 gap-2">
                 <div className="p-2 rounded-lg bg-white/5 border border-white/5">

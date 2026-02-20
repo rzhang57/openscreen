@@ -15,6 +15,9 @@ type HudSettings = {
   selectedCameraDeviceId: string;
   recordingPreset: RecordingPreset;
   recordingFps: RecordingFps;
+  customCursorEnabled: boolean;
+  useLegacyRecorder: boolean;
+  recordingCodec: "h264_libx264" | "h264_nvenc" | "hevc_nvenc";
 };
 
 const defaultSettings: HudSettings = {
@@ -26,6 +29,9 @@ const defaultSettings: HudSettings = {
   selectedCameraDeviceId: "",
   recordingPreset: "quality",
   recordingFps: 60,
+  customCursorEnabled: true,
+  useLegacyRecorder: false,
+  recordingCodec: "h264_nvenc",
 };
 
 export function HudPopoverWindow() {
@@ -184,6 +190,69 @@ export function HudPopoverWindow() {
                     {fps} FPS
                   </button>
                 ))}
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[10px] uppercase tracking-wider text-slate-500">Codec</label>
+              <div className="grid grid-cols-3 gap-1">
+                {([
+                  { key: "h264_nvenc", label: "NVENC H264" },
+                  { key: "hevc_nvenc", label: "NVENC HEVC" },
+                  { key: "h264_libx264", label: "x264 CPU" },
+                ] as const).map((codec) => (
+                  <button
+                    key={codec.key}
+                    type="button"
+                    onClick={() => update({ recordingCodec: codec.key })}
+                    className={`h-7 rounded-md text-[10px] font-medium border ${
+                      settings.recordingCodec === codec.key
+                        ? "bg-white text-black border-white"
+                        : "bg-white/5 text-slate-300 border-white/10 hover:bg-white/10"
+                    }`}
+                  >
+                    {codec.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[10px] uppercase tracking-wider text-slate-500">Cursor</label>
+              <button
+                type="button"
+                onClick={() => update({
+                  customCursorEnabled: !settings.customCursorEnabled,
+                  ...(settings.customCursorEnabled ? {} : { useLegacyRecorder: false }),
+                })}
+                className={`w-full h-7 rounded-md text-[10px] font-medium border ${
+                  settings.customCursorEnabled
+                    ? "bg-white text-black border-white"
+                    : "bg-white/5 text-slate-300 border-white/10 hover:bg-white/10"
+                }`}
+              >
+                {settings.customCursorEnabled ? "Custom Cursor On" : "Custom Cursor Off"}
+              </button>
+              <div className="text-[10px] text-slate-500 leading-relaxed">
+                When enabled, screen capture hides the native cursor and records cursor telemetry for smoothing/editing.
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[10px] uppercase tracking-wider text-slate-500">Recorder Engine</label>
+              <button
+                type="button"
+                onClick={() => update({
+                  useLegacyRecorder: !settings.useLegacyRecorder,
+                  ...(settings.useLegacyRecorder ? {} : { customCursorEnabled: false }),
+                })}
+                className={`w-full h-7 rounded-md text-[10px] font-medium border ${
+                  settings.useLegacyRecorder
+                    ? "bg-white text-black border-white"
+                    : "bg-white/5 text-slate-300 border-white/10 hover:bg-white/10"
+                }`}
+              >
+                {settings.useLegacyRecorder ? "Legacy Recorder On" : "Legacy Recorder Off (Native)"}
+              </button>
+              <div className="text-[10px] text-slate-500 leading-relaxed">
+                Legacy and Custom Cursor are mutually exclusive.
               </div>
             </div>
           </div>

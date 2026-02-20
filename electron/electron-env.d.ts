@@ -51,6 +51,9 @@ interface Window {
         selectedCameraDeviceId: string
         recordingPreset: 'performance' | 'balanced' | 'quality'
         recordingFps: 60 | 120
+        customCursorEnabled: boolean
+        useLegacyRecorder: boolean
+        recordingCodec: 'h264_libx264' | 'h264_nvenc' | 'hevc_nvenc'
       }
     }>
     preloadHudPopoverWindows: () => Promise<{ success: boolean; message?: string }>
@@ -63,6 +66,9 @@ interface Window {
       selectedCameraDeviceId?: string
       recordingPreset?: 'performance' | 'balanced' | 'quality'
       recordingFps?: 60 | 120
+      customCursorEnabled?: boolean
+      useLegacyRecorder?: boolean
+      recordingCodec?: 'h264_libx264' | 'h264_nvenc' | 'hevc_nvenc'
     }) => Promise<{ success: boolean }>
     openHudPopoverWindow: (payload: {
       kind: 'recording' | 'media'
@@ -85,6 +91,9 @@ interface Window {
       selectedCameraDeviceId: string
       recordingPreset: 'performance' | 'balanced' | 'quality'
       recordingFps: 60 | 120
+      customCursorEnabled: boolean
+      useLegacyRecorder: boolean
+      recordingCodec: 'h264_libx264' | 'h264_nvenc' | 'hevc_nvenc'
     }) => void) => () => void
     selectSource: (source: ProcessedDesktopSource) => Promise<ProcessedDesktopSource>
     getSelectedSource: () => Promise<ProcessedDesktopSource | null>
@@ -98,8 +107,19 @@ interface Window {
       inputTelemetryFileName?: string
       session: Record<string, unknown>
     }) => Promise<{ success: boolean; session?: Record<string, unknown>; message?: string; error?: string }>
+    storeNativeRecordingSession: (payload: {
+      screenVideoPath: string
+      cameraVideoData?: ArrayBuffer
+      cameraFileName?: string
+      inputTelemetry?: import('../src/types/inputTelemetry').InputTelemetryFileV1
+      inputTelemetryFileName?: string
+      session: Record<string, unknown>
+    }) => Promise<{ success: boolean; session?: Record<string, unknown>; message?: string; error?: string }>
     startInputTracking: (payload: import('../src/types/inputTelemetry').StartInputTrackingPayload) => Promise<{ success: boolean; message?: string }>
     stopInputTracking: () => Promise<{ success: boolean; telemetry?: import('../src/types/inputTelemetry').InputTelemetryFileV1; message?: string }>
+    nativeCaptureStart: (payload: import('../src/types/nativeCapture').NativeCaptureStartPayload) => Promise<{ success: boolean; message?: string }>
+    nativeCaptureStop: (payload: import('../src/types/nativeCapture').NativeCaptureStopPayload) => Promise<{ success: boolean; result?: import('../src/types/nativeCapture').NativeCaptureSessionResult; message?: string }>
+    nativeCaptureStatus: (sessionId?: string) => Promise<{ success: boolean; status: import('../src/types/nativeCapture').NativeCaptureStatus; message?: string; sessionId?: string; startedAtMs?: number }>
     getRecordedVideoPath: () => Promise<{ success: boolean; path?: string; message?: string }>
     setRecordingState: (recording: boolean) => Promise<void>
     onStopRecordingFromTray: (callback: () => void) => () => void

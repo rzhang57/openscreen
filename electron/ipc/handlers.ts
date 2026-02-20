@@ -1,11 +1,14 @@
 import { ipcMain, desktopCapturer, BrowserWindow, shell, app, dialog, screen, type Rectangle } from 'electron'
 
 import fs from 'node:fs/promises'
+import fsSync from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { RECORDINGS_DIR, VITE_DEV_SERVER_URL, RENDERER_DIST } from '../main'
 import { InputTrackingService } from '../services/inputTrackingService'
+import { NativeCaptureService } from '../services/nativeCaptureService'
 import type { InputTelemetryFileV1 } from '@/types/inputTelemetry'
+import type { NativeCaptureStartPayload, NativeCaptureStopPayload } from '@/types/nativeCapture'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -13,6 +16,7 @@ let selectedSource: any = null
 let currentVideoPath: string | null = null
 let currentRecordingSession: any = null
 const inputTrackingService = new InputTrackingService()
+const nativeCaptureService = new NativeCaptureService()
 const DEFAULT_EXPORTS_DIR = path.join(app.getPath('documents'), 'OpenScreen Exports')
 type HudPopoverKind = 'recording' | 'media'
 type HudPopoverSide = 'top' | 'bottom'
@@ -26,6 +30,9 @@ type HudSettings = {
   selectedCameraDeviceId: string
   recordingPreset: 'performance' | 'balanced' | 'quality'
   recordingFps: 60 | 120
+  customCursorEnabled: boolean
+  useLegacyRecorder: boolean
+  recordingCodec: 'h264_libx264' | 'h264_nvenc' | 'hevc_nvenc'
 }
 
 const hudSettings: HudSettings = {
@@ -37,6 +44,44 @@ const hudSettings: HudSettings = {
   selectedCameraDeviceId: '',
   recordingPreset: 'quality',
   recordingFps: 60,
+  customCursorEnabled: true,
+  useLegacyRecorder: false,
+  recordingCodec: 'h264_nvenc',
+}
+
+function resolveCaptureRegionForDisplay(displayId?: string): { x: number; y: number; width: number; height: number } | undefined {
+  if (!displayId) return undefined
+  const displays = screen.getAllDisplays()
+  const display = displays.find((item) => String(item.id) === displayId)
+  if (!display) return undefined
+
+  const dipToScreenPoint = (point: { x: number; y: number }) => {
+    const maybe = (screen as unknown as { dipToScreenPoint?: (p: { x: number; y: number }) => { x: number; y: number } }).dipToScreenPoint
+    return typeof maybe === 'function' ? maybe(point) : point
+  }
+
+  const topLeft = dipToScreenPoint({ x: display.bounds.x, y: display.bounds.y })
+  const bottomRight = dipToScreenPoint({
+    x: display.bounds.x + display.bounds.width,
+    y: display.bounds.y + display.bounds.height,
+  })
+
+  return {
+    x: topLeft.x,
+    y: topLeft.y,
+    width: Math.max(1, bottomRight.x - topLeft.x),
+    height: Math.max(1, bottomRight.y - topLeft.y),
+  }
+}
+
+export function getSelectedSourceForDisplayMedia(): { id?: string; display_id?: string } | null {
+  if (!selectedSource || typeof selectedSource !== 'object') {
+    return null
+  }
+  return {
+    id: typeof selectedSource.id === 'string' ? selectedSource.id : undefined,
+    display_id: typeof selectedSource.display_id === 'string' ? selectedSource.display_id : undefined,
+  }
 }
 
 let recordingPopoverWindow: BrowserWindow | null = null
@@ -123,7 +168,7 @@ export function registerIpcHandlers(
     side: HudPopoverSide
   ) => {
     const popoverSize = kind === 'recording'
-      ? { width: 340, height: 230 }
+      ? { width: 420, height: 560 }
       : { width: 360, height: 290 }
     const margin = 8
     const absoluteAnchor = {
@@ -449,8 +494,51 @@ export function registerIpcHandlers(
       hudSettings.recordingPreset = partial.recordingPreset
     }
     if (partial.recordingFps === 60 || partial.recordingFps === 120) hudSettings.recordingFps = partial.recordingFps
+    if (typeof partial.customCursorEnabled === 'boolean') {
+      hudSettings.customCursorEnabled = partial.customCursorEnabled
+      if (partial.customCursorEnabled) {
+        hudSettings.useLegacyRecorder = false
+      }
+    }
+    if (typeof partial.useLegacyRecorder === 'boolean') {
+      hudSettings.useLegacyRecorder = partial.useLegacyRecorder
+      if (partial.useLegacyRecorder) {
+        hudSettings.customCursorEnabled = false
+      }
+    }
+    if (partial.recordingCodec === 'h264_libx264' || partial.recordingCodec === 'h264_nvenc' || partial.recordingCodec === 'hevc_nvenc') {
+      hudSettings.recordingCodec = partial.recordingCodec
+    }
     broadcastHudSettings()
     return { success: true, settings: hudSettings }
+  })
+
+  ipcMain.handle('native-capture-start', async (_, payload: NativeCaptureStartPayload) => {
+    const packagedFfmpeg = app.isPackaged
+      ? path.join(process.resourcesPath, 'native-capture', process.platform, process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg')
+      : path.join(app.getAppPath(), 'native-capture-sidecar', 'bin', process.platform, process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg')
+    const sourceDisplayId = payload.source?.displayId
+      || (typeof selectedSource?.display_id === 'string' ? selectedSource.display_id : undefined)
+    const captureRegion = payload.source?.type === 'screen'
+      ? resolveCaptureRegionForDisplay(sourceDisplayId)
+      : undefined
+    const normalizedPayload: NativeCaptureStartPayload = {
+      ...payload,
+      outputPath: path.isAbsolute(payload.outputPath)
+        ? payload.outputPath
+        : path.join(RECORDINGS_DIR, payload.outputPath),
+      ffmpegPath: payload.ffmpegPath || (fsSync.existsSync(packagedFfmpeg) ? packagedFfmpeg : undefined),
+      captureRegion: payload.captureRegion || captureRegion,
+    }
+    return await nativeCaptureService.start(normalizedPayload)
+  })
+
+  ipcMain.handle('native-capture-stop', async (_, payload: NativeCaptureStopPayload) => {
+    return await nativeCaptureService.stop(payload)
+  })
+
+  ipcMain.handle('native-capture-status', (_, sessionId?: string) => {
+    return { success: true, ...nativeCaptureService.getStatus(sessionId) }
   })
 
   ipcMain.handle('open-hud-popover-window', (_, payload: {
@@ -652,6 +740,63 @@ export function registerIpcHandlers(
       return {
         success: false,
         message: 'Failed to store recording session',
+        error: String(error),
+      }
+    }
+  })
+
+  ipcMain.handle('store-native-recording-session', async (_, payload: {
+    screenVideoPath: string
+    cameraVideoData?: ArrayBuffer
+    cameraFileName?: string
+    inputTelemetry?: InputTelemetryFileV1
+    inputTelemetryFileName?: string
+    session: Record<string, unknown>
+  }) => {
+    try {
+      let finalScreenVideoPath = payload.screenVideoPath
+      if (!payload.screenVideoPath.startsWith(RECORDINGS_DIR)) {
+        const targetName = `${path.parse(payload.screenVideoPath).name}.mp4`
+        finalScreenVideoPath = await getUniqueFilePath(RECORDINGS_DIR, targetName)
+        await fs.copyFile(payload.screenVideoPath, finalScreenVideoPath)
+      }
+
+      let cameraVideoPath: string | undefined
+      if (payload.cameraVideoData && payload.cameraFileName) {
+        cameraVideoPath = path.join(RECORDINGS_DIR, payload.cameraFileName)
+        await fs.writeFile(cameraVideoPath, Buffer.from(payload.cameraVideoData))
+      }
+
+      let inputTelemetryPath: string | undefined
+      let inputTelemetry: InputTelemetryFileV1 | undefined
+      if (payload.inputTelemetry) {
+        const telemetryFileName = payload.inputTelemetryFileName || `${path.parse(finalScreenVideoPath).name}.telemetry.json`
+        inputTelemetryPath = path.join(RECORDINGS_DIR, telemetryFileName)
+        await fs.writeFile(inputTelemetryPath, JSON.stringify(payload.inputTelemetry), 'utf-8')
+        inputTelemetry = payload.inputTelemetry
+      }
+
+      const session = {
+        ...payload.session,
+        screenVideoPath: finalScreenVideoPath,
+        ...(cameraVideoPath ? { cameraVideoPath } : {}),
+        ...(inputTelemetryPath ? { inputTelemetryPath } : {}),
+        ...(inputTelemetry ? { inputTelemetry } : {}),
+      }
+
+      currentRecordingSession = session
+      currentVideoPath = finalScreenVideoPath
+
+      return {
+        success: true,
+        session,
+        message: 'Native recording session stored successfully',
+      }
+    } catch (error) {
+      console.error('[native-capture][main] Failed to store native recording session', error)
+      return {
+        success: false,
+        message: 'Failed to store native recording session',
         error: String(error),
       }
     }

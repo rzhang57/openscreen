@@ -37,6 +37,7 @@ import { getAssetPath } from "@/lib/assetPath";
 import type { RecordingSession } from "@/types/recordingSession";
 import type { AutoZoomIntensity, InputTelemetryFileV1 } from "@/types/inputTelemetry";
 import { generateAutoZoomRegions } from "@/lib/autoZoom/generateAutoZoomRegions";
+import { buildSmoothedCursorTelemetry, type CustomCursorTelemetry } from "@/lib/cursor/customCursor";
 
 const WALLPAPER_COUNT = 18;
 const WALLPAPER_PATHS = Array.from({ length: WALLPAPER_COUNT }, (_, i) => `/wallpapers/wallpaper${i + 1}.jpg`);
@@ -53,6 +54,7 @@ export default function VideoEditor() {
   const [recordingSession, setRecordingSession] = useState<RecordingSession | null>(null);
   const [cameraVideoPath, setCameraVideoPath] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [cursorProcessing, setCursorProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -62,6 +64,8 @@ export default function VideoEditor() {
   const [showBlur, setShowBlur] = useState(false);
   const [motionBlurEnabled, setMotionBlurEnabled] = useState(false);
   const [cursorTrailEnabled, setCursorTrailEnabled] = useState(false);
+  const [customCursorSize, setCustomCursorSize] = useState(1.2);
+  const [customCursorTelemetry, setCustomCursorTelemetry] = useState<CustomCursorTelemetry | null>(null);
   const [borderRadius, setBorderRadius] = useState(0);
   const [padding, setPadding] = useState(50);
   const [cropRegion, setCropRegion] = useState<CropRegion>(DEFAULT_CROP_REGION);
@@ -121,9 +125,21 @@ export default function VideoEditor() {
         const sessionResult = await window.electronAPI.getCurrentRecordingSession();
         if (sessionResult.success && sessionResult.session) {
           const session = sessionResult.session as unknown as RecordingSession;
+          const customEnabled = Boolean(session.customCursorEnabled && session.inputTelemetry);
+          if (customEnabled) {
+            setCursorProcessing(true);
+          }
           setRecordingSession(session);
           setVideoPath(toFileUrl(session.screenVideoPath));
           setCameraVideoPath(session.cameraVideoPath ? toFileUrl(session.cameraVideoPath) : null);
+          if (customEnabled) {
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            setCustomCursorTelemetry(buildSmoothedCursorTelemetry(session.inputTelemetry));
+            setCursorProcessing(false);
+          } else {
+            setCustomCursorTelemetry(null);
+            setCursorProcessing(false);
+          }
           console.info("[auto-zoom][editor] Loaded recording session", {
             sessionId: session.id,
             hasTelemetry: Boolean(session.inputTelemetry),
@@ -137,6 +153,8 @@ export default function VideoEditor() {
             setRecordingSession(null);
             setCameraVideoPath(null);
             setVideoPath(videoUrl);
+            setCustomCursorTelemetry(null);
+            setCursorProcessing(false);
             console.info("[auto-zoom][editor] Loaded video without recording session context", {
               path: result.path,
             });
@@ -149,6 +167,7 @@ export default function VideoEditor() {
         setError('Error loading video: ' + String(err));
         console.error("[auto-zoom][editor] Failed while loading video/session", err);
       } finally {
+        setCursorProcessing(false);
         setLoading(false);
       }
     }
@@ -791,11 +810,14 @@ export default function VideoEditor() {
           showBlur,
           motionBlurEnabled,
           cursorTrailEnabled,
+          customCursorEnabled: Boolean(recordingSession?.customCursorEnabled),
+          customCursorSize,
           borderRadius,
           padding,
           videoPadding: padding,
           cropRegion,
           inputTelemetry: recordingSession?.inputTelemetry,
+          customCursorTelemetry,
           annotationRegions,
           previewWidth,
           previewHeight,
@@ -873,10 +895,13 @@ export default function VideoEditor() {
           showBlur,
           motionBlurEnabled,
           cursorTrailEnabled,
+          customCursorEnabled: Boolean(recordingSession?.customCursorEnabled),
+          customCursorSize,
           borderRadius,
           padding,
           cropRegion,
           inputTelemetry: recordingSession?.inputTelemetry,
+          customCursorTelemetry,
           annotationRegions,
           previewWidth,
           previewHeight,
@@ -929,7 +954,7 @@ export default function VideoEditor() {
       setShowExportDialog(false);
       setExportProgress(null);
     }
-  }, [videoPath, cameraVideoPath, recordingSession, cameraHiddenRegions, wallpaper, zoomRegions, trimRegions, shadowIntensity, showBlur, motionBlurEnabled, cursorTrailEnabled, borderRadius, padding, cropRegion, annotationRegions, isPlaying, aspectRatio, mp4FrameRate, mp4Resolution, exportDirectory]);
+  }, [videoPath, cameraVideoPath, recordingSession, cameraHiddenRegions, wallpaper, zoomRegions, trimRegions, shadowIntensity, showBlur, motionBlurEnabled, cursorTrailEnabled, customCursorSize, customCursorTelemetry, borderRadius, padding, cropRegion, annotationRegions, isPlaying, aspectRatio, mp4FrameRate, mp4Resolution, exportDirectory]);
 
   const handleOpenExportDialog = useCallback(() => {
     if (!videoPath) {
@@ -1008,10 +1033,32 @@ export default function VideoEditor() {
     }
   }, []);
 
-  if (loading) {
+  if (loading || cursorProcessing) {
     return (
-      <div className="flex items-center justify-center h-screen bg-background">
-        <div className="text-foreground">Loading video...</div>
+      <div className="relative h-screen bg-[#09090b] text-slate-200 p-5 overflow-hidden">
+        <div className="h-10 rounded-xl border border-white/5 bg-white/[0.02] animate-pulse mb-4" />
+        <div className="flex gap-4 h-[calc(100%-56px)]">
+          <div className="flex-[7] flex flex-col gap-3">
+            <div className="flex-1 rounded-2xl border border-white/5 bg-white/[0.02] p-4">
+              <div className="h-full rounded-xl bg-white/[0.03] animate-pulse" />
+            </div>
+            <div className="h-40 rounded-2xl border border-white/5 bg-white/[0.02] p-3 space-y-2">
+              <div className="h-5 w-28 rounded bg-white/10 animate-pulse" />
+              <div className="h-8 rounded bg-white/10 animate-pulse" />
+              <div className="h-8 rounded bg-white/10 animate-pulse" />
+            </div>
+          </div>
+          <div className="flex-[2] rounded-2xl border border-white/5 bg-white/[0.02] p-4 space-y-3">
+            <div className="h-5 w-24 rounded bg-white/10 animate-pulse" />
+            <div className="h-10 rounded bg-white/10 animate-pulse" />
+            <div className="h-10 rounded bg-white/10 animate-pulse" />
+            <div className="h-10 rounded bg-white/10 animate-pulse" />
+            <div className="h-10 rounded bg-white/10 animate-pulse" />
+          </div>
+        </div>
+        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 text-xs text-slate-400">
+          {loading ? "Loading editor..." : "Processing cursor telemetry..."}
+        </div>
       </div>
     );
   }
@@ -1102,7 +1149,10 @@ export default function VideoEditor() {
                       showBlur={showBlur}
                       motionBlurEnabled={motionBlurEnabled}
                       cursorTrailEnabled={cursorTrailEnabled}
+                      customCursorEnabled={Boolean(recordingSession?.customCursorEnabled)}
+                      customCursorSize={customCursorSize}
                       inputTelemetry={recordingSession?.inputTelemetry}
+                      customCursorTelemetry={customCursorTelemetry}
                       borderRadius={borderRadius}
                       padding={padding}
                       cropRegion={cropRegion}
@@ -1192,6 +1242,9 @@ export default function VideoEditor() {
           onMotionBlurChange={setMotionBlurEnabled}
           cursorTrailEnabled={cursorTrailEnabled}
           onCursorTrailChange={setCursorTrailEnabled}
+          customCursorEnabled={Boolean(recordingSession?.customCursorEnabled)}
+          customCursorSize={customCursorSize}
+          onCustomCursorSizeChange={setCustomCursorSize}
           borderRadius={borderRadius}
           onBorderRadiusChange={setBorderRadius}
           padding={padding}

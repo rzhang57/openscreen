@@ -4,6 +4,7 @@ import { FrameRenderer } from './frameRenderer';
 import { VideoMuxer } from './muxer';
 import type { ZoomRegion, CropRegion, TrimRegion, AnnotationRegion, CameraHiddenRegion } from '@/components/video-editor/types';
 import type { InputTelemetryFileV1 } from '@/types/inputTelemetry';
+import type { CustomCursorTelemetry } from '@/lib/cursor/customCursor';
 
 interface VideoExporterConfig extends ExportConfig {
   videoUrl: string;
@@ -18,7 +19,10 @@ interface VideoExporterConfig extends ExportConfig {
   showBlur: boolean;
   motionBlurEnabled?: boolean;
   cursorTrailEnabled?: boolean;
+  customCursorEnabled?: boolean;
+  customCursorSize?: number;
   inputTelemetry?: InputTelemetryFileV1;
+  customCursorTelemetry?: CustomCursorTelemetry | null;
   borderRadius?: number;
   padding?: number;
   videoPadding?: number;
@@ -103,7 +107,10 @@ export class VideoExporter {
         showBlur: this.config.showBlur,
         motionBlurEnabled: this.config.motionBlurEnabled,
         cursorTrailEnabled: this.config.cursorTrailEnabled,
+        customCursorEnabled: this.config.customCursorEnabled,
+        customCursorSize: this.config.customCursorSize,
         inputTelemetry: this.config.inputTelemetry,
+        customCursorTelemetry: this.config.customCursorTelemetry,
         borderRadius: this.config.borderRadius,
         padding: this.config.padding,
         cropRegion: this.config.cropRegion,

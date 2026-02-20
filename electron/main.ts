@@ -1,14 +1,20 @@
-import { app, BrowserWindow, Tray, Menu, nativeImage } from 'electron'
+import { app, BrowserWindow, Tray, Menu, nativeImage, desktopCapturer, session } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import fs from 'node:fs/promises'
 import { createHudOverlayWindow, createEditorWindow, createSourceSelectorWindow, createCameraPreviewWindow, closeCameraPreviewWindow, getCameraPreviewWindow } from './windows'
-import { registerIpcHandlers } from './ipc/handlers'
+import { getSelectedSourceForDisplayMedia, registerIpcHandlers } from './ipc/handlers'
 
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 export const RECORDINGS_DIR = path.join(app.getPath('userData'), 'recordings')
+const SESSION_DATA_DIR = path.join(app.getPath('temp'), 'openscreen-session-data')
+
+// Keep Chromium cache writes out of restricted locations on Windows.
+app.commandLine.appendSwitch('disable-gpu-shader-disk-cache')
+app.commandLine.appendSwitch('disk-cache-dir', path.join(SESSION_DATA_DIR, 'Cache'))
+app.setPath('sessionData', SESSION_DATA_DIR)
 
 
 async function ensureRecordingsDir() {
@@ -18,6 +24,14 @@ async function ensureRecordingsDir() {
     console.log('User Data Path:', app.getPath('userData'))
   } catch (error) {
     console.error('Failed to create recordings directory:', error)
+  }
+}
+
+async function ensureSessionDataDir() {
+  try {
+    await fs.mkdir(SESSION_DATA_DIR, { recursive: true })
+  } catch (error) {
+    console.error('Failed to create session data directory:', error)
   }
 }
 
@@ -165,6 +179,42 @@ app.on('activate', () => {
 
 // Register all IPC handlers when app is ready
 app.whenReady().then(async () => {
+    await ensureSessionDataDir()
+    session.defaultSession.setDisplayMediaRequestHandler(async (_request, callback) => {
+      try {
+        const selected = getSelectedSourceForDisplayMedia()
+        const sources = await desktopCapturer.getSources({
+          types: ['screen', 'window'],
+          thumbnailSize: { width: 0, height: 0 },
+          fetchWindowIcons: false,
+        })
+
+        let target = selected?.id
+          ? sources.find((source) => source.id === selected.id)
+          : undefined
+
+        if (!target && selected?.display_id) {
+          target = sources.find((source) => source.display_id === selected.display_id && source.id.startsWith('screen:'))
+        }
+
+        if (!target) {
+          target = sources.find((source) => source.id.startsWith('screen:')) || sources[0]
+        }
+
+        if (!target) {
+          callback({})
+          return
+        }
+
+        callback({
+          video: target,
+        })
+      } catch (error) {
+        console.error('Display media handler failed:', error)
+        callback({})
+      }
+    }, { useSystemPicker: false })
+
     // Listen for HUD overlay quit event (macOS only)
     const { ipcMain } = await import('electron');
     ipcMain.on('hud-overlay-close', () => {

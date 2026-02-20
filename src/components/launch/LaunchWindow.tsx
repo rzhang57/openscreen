@@ -28,6 +28,9 @@ export function LaunchWindow() {
   const [selectedCameraDeviceId, setSelectedCameraDeviceId] = useState<string>("");
   const [recordingPreset, setRecordingPreset] = useState<RecordingPreset>("quality");
   const [recordingFps, setRecordingFps] = useState<RecordingFps>(60);
+  const [customCursorEnabled, setCustomCursorEnabled] = useState(true);
+  const [useLegacyRecorder, setUseLegacyRecorder] = useState(false);
+  const [recordingCodec, setRecordingCodec] = useState<"h264_libx264" | "h264_nvenc" | "hevc_nvenc">("h264_nvenc");
   const [popoverSide, setPopoverSide] = useState<"top" | "bottom">("top");
   const hudRef = useRef<HTMLDivElement | null>(null);
   const recordingSettingsButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -134,6 +137,9 @@ export function LaunchWindow() {
       selectedCameraDeviceId: string;
       recordingPreset: RecordingPreset;
       recordingFps: RecordingFps;
+      customCursorEnabled: boolean;
+      useLegacyRecorder: boolean;
+      recordingCodec: "h264_libx264" | "h264_nvenc" | "hevc_nvenc";
     }) => {
       setMicEnabled(settings.micEnabled);
       setSelectedMicDeviceId(settings.selectedMicDeviceId);
@@ -143,6 +149,9 @@ export function LaunchWindow() {
       setSelectedCameraDeviceId(settings.selectedCameraDeviceId);
       setRecordingPreset(settings.recordingPreset);
       setRecordingFps(settings.recordingFps);
+      setCustomCursorEnabled(settings.customCursorEnabled);
+      setUseLegacyRecorder(settings.useLegacyRecorder);
+      setRecordingCodec(settings.recordingCodec);
     };
 
     window.electronAPI.getHudSettings().then((result) => {
@@ -167,8 +176,11 @@ export function LaunchWindow() {
       selectedCameraDeviceId,
       recordingPreset,
       recordingFps,
+      customCursorEnabled,
+      useLegacyRecorder,
+      recordingCodec,
     }).catch(() => {});
-  }, [micEnabled, selectedMicDeviceId, micProcessingMode, cameraEnabled, cameraPreviewEnabled, selectedCameraDeviceId, recordingPreset, recordingFps]);
+  }, [micEnabled, selectedMicDeviceId, micProcessingMode, cameraEnabled, cameraPreviewEnabled, selectedCameraDeviceId, recordingPreset, recordingFps, customCursorEnabled, useLegacyRecorder, recordingCodec]);
 
   useEffect(() => {
     let stream: MediaStream | null = null;
@@ -375,6 +387,9 @@ export function LaunchWindow() {
                       cameraDeviceId: selectedCameraDeviceId || undefined,
                       recordingPreset,
                       recordingFps,
+                      customCursorEnabled,
+                      useLegacyRecorder,
+                      recordingCodec,
                     })
                 : openSourceSelector
             }

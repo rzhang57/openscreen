@@ -22,6 +22,9 @@ export interface RecordingSession {
   inputTelemetry?: InputTelemetryFileV1;
   autoZoomGeneratedAtMs?: number;
   autoZoomAlgorithmVersion?: string;
+  customCursorEnabled?: boolean;
+  captureBackend?: "native-sidecar" | "legacy-electron";
+  recordingCodec?: "h264_libx264" | "h264_nvenc" | "hevc_nvenc";
 }
 
 export interface CameraHiddenRegion {

@@ -75,11 +75,23 @@ electron.contextBridge.exposeInMainWorld("electronAPI", {
   storeRecordingSession: (payload) => {
     return electron.ipcRenderer.invoke("store-recording-session", payload);
   },
+  storeNativeRecordingSession: (payload) => {
+    return electron.ipcRenderer.invoke("store-native-recording-session", payload);
+  },
   startInputTracking: (payload) => {
     return electron.ipcRenderer.invoke("start-input-tracking", payload);
   },
   stopInputTracking: () => {
     return electron.ipcRenderer.invoke("stop-input-tracking");
+  },
+  nativeCaptureStart: (payload) => {
+    return electron.ipcRenderer.invoke("native-capture-start", payload);
+  },
+  nativeCaptureStop: (payload) => {
+    return electron.ipcRenderer.invoke("native-capture-stop", payload);
+  },
+  nativeCaptureStatus: (sessionId) => {
+    return electron.ipcRenderer.invoke("native-capture-status", sessionId);
   },
   getRecordedVideoPath: () => {
     return electron.ipcRenderer.invoke("get-recorded-video-path");

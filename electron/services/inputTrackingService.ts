@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 import { screen } from "electron";
 import type {
+  CursorVisualType,
   InputSourceBounds,
   InputSourceKind,
   InputTelemetryEvent,
@@ -145,7 +146,23 @@ function resolveSourceBounds(sourceKind: InputSourceKind, sourceDisplayId?: stri
   const byDisplayId = displays.find((display) => String(display.id) === sourceDisplayId);
   const targetDisplay = byDisplayId ?? screen.getPrimaryDisplay();
   const { x, y, width, height } = targetDisplay.bounds;
-  return { x, y, width, height };
+
+  // uiohook coordinates are typically in physical screen pixels. Convert Electron DIP bounds to screen pixels.
+  const dipToScreen = (point: { x: number; y: number }) => {
+    const maybeFn = (screen as unknown as { dipToScreenPoint?: (p: { x: number; y: number }) => { x: number; y: number } }).dipToScreenPoint;
+    return typeof maybeFn === "function" ? maybeFn(point) : point;
+  };
+  const topLeft = dipToScreen({ x, y });
+  const bottomRight = dipToScreen({ x: x + width, y: y + height });
+  const physicalWidth = Math.max(1, bottomRight.x - topLeft.x);
+  const physicalHeight = Math.max(1, bottomRight.y - topLeft.y);
+
+  return {
+    x: topLeft.x,
+    y: topLeft.y,
+    width: physicalWidth,
+    height: physicalHeight,
+  };
 }
 
 function categorizeKey(raw: { keycode?: number; rawcode?: number; shiftKey?: boolean; ctrlKey?: boolean; altKey?: boolean; metaKey?: boolean }): KeyCategory {
@@ -162,6 +179,16 @@ function categorizeKey(raw: { keycode?: number; rawcode?: number; shiftKey?: boo
   }
 
   return "other";
+}
+
+function resolveCursorType(event: { button?: number; deltaX?: number; deltaY?: number }, eventType: InputTelemetryEvent["type"]): CursorVisualType {
+  if (eventType === "mouseDown" || eventType === "mouseUp") {
+    return event.button === 2 ? "default" : "pointer";
+  }
+  if (eventType === "wheel") {
+    return Math.abs(Number(event.deltaX ?? 0)) + Math.abs(Number(event.deltaY ?? 0)) > 0 ? "default" : "pointer";
+  }
+  return "default";
 }
 
 export class InputTrackingService {
@@ -209,6 +236,7 @@ export class InputTrackingService {
           x: Number(event.x ?? 0),
           y: Number(event.y ?? 0),
           button: Number(event.button ?? 0),
+          cursorType: resolveCursorType(event, "mouseDown"),
         });
       },
       onMouseUp: (event) => {
@@ -218,6 +246,7 @@ export class InputTrackingService {
           x: Number(event.x ?? 0),
           y: Number(event.y ?? 0),
           button: Number(event.button ?? 0),
+          cursorType: resolveCursorType(event, "mouseUp"),
         });
       },
       onMouseMove: (event) => {
@@ -242,6 +271,7 @@ export class InputTrackingService {
           ts: now,
           x,
           y,
+          cursorType: "default",
         });
       },
       onWheel: (event) => {
@@ -254,6 +284,7 @@ export class InputTrackingService {
           y: Number(event.y ?? 0),
           deltaX,
           deltaY,
+          cursorType: resolveCursorType({ deltaX, deltaY }, "wheel"),
         });
       },
       onKeyDown: (event) => {

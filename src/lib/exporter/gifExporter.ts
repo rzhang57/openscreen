@@ -4,6 +4,7 @@ import { StreamingVideoDecoder } from './streamingDecoder';
 import { FrameRenderer } from './frameRenderer';
 import type { ZoomRegion, CropRegion, TrimRegion, AnnotationRegion, CameraHiddenRegion } from '@/components/video-editor/types';
 import type { InputTelemetryFileV1 } from '@/types/inputTelemetry';
+import type { CustomCursorTelemetry } from '@/lib/cursor/customCursor';
 
 const GIF_WORKER_URL = new URL('gif.js/dist/gif.worker.js', import.meta.url).toString();
 
@@ -25,7 +26,10 @@ interface GifExporterConfig {
   showBlur: boolean;
   motionBlurEnabled?: boolean;
   cursorTrailEnabled?: boolean;
+  customCursorEnabled?: boolean;
+  customCursorSize?: number;
   inputTelemetry?: InputTelemetryFileV1;
+  customCursorTelemetry?: CustomCursorTelemetry | null;
   borderRadius?: number;
   padding?: number;
   videoPadding?: number;
@@ -135,7 +139,10 @@ export class GifExporter {
         showBlur: this.config.showBlur,
         motionBlurEnabled: this.config.motionBlurEnabled,
         cursorTrailEnabled: this.config.cursorTrailEnabled,
+        customCursorEnabled: this.config.customCursorEnabled,
+        customCursorSize: this.config.customCursorSize,
         inputTelemetry: this.config.inputTelemetry,
+        customCursorTelemetry: this.config.customCursorTelemetry,
         borderRadius: this.config.borderRadius,
         padding: this.config.padding,
         cropRegion: this.config.cropRegion,

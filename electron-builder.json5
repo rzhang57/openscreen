@@ -24,6 +24,20 @@
     {
       "from": "public/wallpapers",
       "to": "assets/wallpapers"
+    },
+    {
+      "from": "native-capture-sidecar/bin/win32",
+      "to": "native-capture/win32",
+      "filter": [
+        "**/*"
+      ]
+    },
+    {
+      "from": "native-capture-sidecar/bin/darwin",
+      "to": "native-capture/darwin",
+      "filter": [
+        "**/*"
+      ]
     }
   ],
 

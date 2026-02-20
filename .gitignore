@@ -25,3 +25,7 @@ dist-ssr
 release/**
 *.kiro/
 # npx electron-builder --mac --win
+native-capture-sidecar/bin/win32/*.exe
+native-capture-sidecar/bin/darwin/native-capture-sidecar
+!native-capture-sidecar/bin/win32/.gitkeep
+!native-capture-sidecar/bin/darwin/.gitkeep

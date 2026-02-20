@@ -8,6 +8,13 @@ import { clampFocusToStage as clampFocusToStageUtil } from '@/components/video-e
 import { renderAnnotations } from './annotationRenderer';
 import type { InputTelemetryFileV1 } from '@/types/inputTelemetry';
 import { getCursorTrailPoints } from '@/lib/autoZoom/cursorTrail';
+import {
+  buildSmoothedCursorTelemetry,
+  drawCustomCursor,
+  getCursorClickPulse,
+  getCursorSampleAtTime,
+  type CustomCursorTelemetry,
+} from '@/lib/cursor/customCursor';
 
 interface FrameRenderConfig {
   width: number;
@@ -19,7 +26,10 @@ interface FrameRenderConfig {
   showBlur: boolean;
   motionBlurEnabled?: boolean;
   cursorTrailEnabled?: boolean;
+  customCursorEnabled?: boolean;
+  customCursorSize?: number;
   inputTelemetry?: InputTelemetryFileV1;
+  customCursorTelemetry?: CustomCursorTelemetry | null;
   borderRadius?: number;
   padding?: number;
   cropRegion: CropRegion;
@@ -61,6 +71,9 @@ export class FrameRenderer {
   private cameraReady = false;
   private shouldRenderCamera = false;
   private trailGraphics: Graphics | null = null;
+  private cursorGraphics: Graphics | null = null;
+  private cursorEraserGraphics: Graphics | null = null;
+  private smoothedCursorTelemetry: CustomCursorTelemetry | null = null;
 
   constructor(config: FrameRenderConfig) {
     this.config = config;
@@ -69,6 +82,7 @@ export class FrameRenderer {
       focusX: DEFAULT_FOCUS.cx,
       focusY: DEFAULT_FOCUS.cy,
     };
+    this.smoothedCursorTelemetry = config.customCursorTelemetry ?? buildSmoothedCursorTelemetry(config.inputTelemetry);
   }
 
   async initialize(): Promise<void> {
@@ -107,6 +121,11 @@ export class FrameRenderer {
     this.cameraContainer.addChild(this.videoContainer);
     this.trailGraphics = new Graphics();
     this.cameraContainer.addChild(this.trailGraphics);
+    this.cursorEraserGraphics = new Graphics();
+    this.cursorEraserGraphics.blendMode = 'erase' as any;
+    this.videoContainer.addChild(this.cursorEraserGraphics);
+    this.cursorGraphics = new Graphics();
+    this.cameraContainer.addChild(this.cursorGraphics);
 
     // Setup background (render separately, not in PixiJS)
     await this.setupBackground();
@@ -385,6 +404,8 @@ export class FrameRenderer {
       motionBlurEnabled: this.config.motionBlurEnabled ?? false,
     });
     this.drawCursorTrail();
+    this.eraseNativeCursor();
+    this.drawCustomCursor();
 
     // Render the PixiJS stage to its canvas (video only, transparent background)
     this.app.renderer.render(this.app.stage);
@@ -666,6 +687,79 @@ export class FrameRenderer {
     }
   }
 
+  private drawCustomCursor(): void {
+    this.cursorGraphics?.clear();
+    if (!this.cursorGraphics || !this.config.customCursorEnabled || !this.config.inputTelemetry || !this.layoutCache) {
+      return;
+    }
+
+    const telemetry = this.smoothedCursorTelemetry;
+    if (!telemetry) return;
+
+    const absoluteTimeMs = this.config.inputTelemetry.startedAtMs + this.currentVideoTime * 1000;
+    const sample = getCursorSampleAtTime(telemetry, absoluteTimeMs);
+    if (!sample) return;
+
+    const crop = this.config.cropRegion;
+    const sourceX = sample.xNorm * this.config.videoWidth;
+    const sourceY = sample.yNorm * this.config.videoHeight;
+    const cropStartX = crop.x * this.config.videoWidth;
+    const cropEndX = cropStartX + crop.width * this.config.videoWidth;
+    const cropStartY = crop.y * this.config.videoHeight;
+    const cropEndY = cropStartY + crop.height * this.config.videoHeight;
+    if (sourceX < cropStartX || sourceX > cropEndX || sourceY < cropStartY || sourceY > cropEndY) {
+      return;
+    }
+
+    const stageX = this.layoutCache.baseOffset.x + sourceX * this.layoutCache.baseScale;
+    const stageY = this.layoutCache.baseOffset.y + sourceY * this.layoutCache.baseScale;
+    const prevSample = getCursorSampleAtTime(telemetry, absoluteTimeMs - 16);
+    const prevStageX = prevSample ? this.layoutCache.baseOffset.x + prevSample.xNorm * this.config.videoWidth * this.layoutCache.baseScale : stageX;
+    const prevStageY = prevSample ? this.layoutCache.baseOffset.y + prevSample.yNorm * this.config.videoHeight * this.layoutCache.baseScale : stageY;
+    const velocityX = stageX - prevStageX;
+    const velocityY = stageY - prevStageY;
+    drawCustomCursor(
+      this.cursorGraphics,
+      stageX,
+      stageY,
+      this.layoutCache.baseScale * (this.config.customCursorSize ?? 1.2) * 22,
+      sample.cursorType,
+      getCursorClickPulse(telemetry.clicks, absoluteTimeMs),
+      velocityX,
+      velocityY
+    );
+  }
+
+  private eraseNativeCursor(): void {
+    this.cursorEraserGraphics?.clear();
+    if (!this.cursorEraserGraphics || !this.config.customCursorEnabled || !this.config.inputTelemetry || !this.layoutCache) {
+      return;
+    }
+
+    const telemetry = this.smoothedCursorTelemetry;
+    if (!telemetry) return;
+
+    const absoluteTimeMs = this.config.inputTelemetry.startedAtMs + this.currentVideoTime * 1000;
+    const sample = getCursorSampleAtTime(telemetry, absoluteTimeMs);
+    if (!sample) return;
+
+    const crop = this.config.cropRegion;
+    const sourceX = sample.xNorm * this.config.videoWidth;
+    const sourceY = sample.yNorm * this.config.videoHeight;
+    const cropStartX = crop.x * this.config.videoWidth;
+    const cropEndX = cropStartX + crop.width * this.config.videoWidth;
+    const cropStartY = crop.y * this.config.videoHeight;
+    const cropEndY = cropStartY + crop.height * this.config.videoHeight;
+    if (sourceX < cropStartX || sourceX > cropEndX || sourceY < cropStartY || sourceY > cropEndY) {
+      return;
+    }
+
+    const localX = (sourceX - cropStartX) * this.layoutCache.baseScale;
+    const localY = (sourceY - cropStartY) * this.layoutCache.baseScale;
+    const radius = Math.max(5, this.layoutCache.baseScale * (this.config.customCursorSize ?? 1.2) * 9);
+    this.cursorEraserGraphics.circle(localX, localY, radius).fill({ color: 0xffffff, alpha: 1 });
+  }
+
   getCanvas(): HTMLCanvasElement {
     if (!this.compositeCanvas) {
       throw new Error('Renderer not initialized');
@@ -696,5 +790,8 @@ export class FrameRenderer {
     this.cameraReady = false;
     this.shouldRenderCamera = false;
     this.trailGraphics = null;
+    this.cursorGraphics = null;
+    this.cursorEraserGraphics = null;
+    this.smoothedCursorTelemetry = null;
   }
 }

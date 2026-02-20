@@ -15,6 +15,13 @@ import { type AspectRatio, formatAspectRatioForCSS } from "@/utils/aspectRatioUt
 import { AnnotationOverlay } from "./AnnotationOverlay";
 import type { InputTelemetryFileV1 } from "@/types/inputTelemetry";
 import { getCursorTrailPoints } from "@/lib/autoZoom/cursorTrail";
+import {
+  buildSmoothedCursorTelemetry,
+  drawCustomCursor,
+  getCursorClickPulse,
+  getCursorSampleAtTime,
+  type CustomCursorTelemetry,
+} from "@/lib/cursor/customCursor";
 
 interface VideoPlaybackProps {
   videoPath: string;
@@ -38,7 +45,10 @@ interface VideoPlaybackProps {
   showBlur?: boolean;
   motionBlurEnabled?: boolean;
   cursorTrailEnabled?: boolean;
+  customCursorEnabled?: boolean;
+  customCursorSize?: number;
   inputTelemetry?: InputTelemetryFileV1;
+  customCursorTelemetry?: CustomCursorTelemetry | null;
   borderRadius?: number;
   padding?: number;
   cropRegion?: import('./types').CropRegion;
@@ -83,7 +93,10 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
   showBlur,
   motionBlurEnabled = false,
   cursorTrailEnabled = false,
+  customCursorEnabled = false,
+  customCursorSize = 1.2,
   inputTelemetry,
+  customCursorTelemetry,
   borderRadius = 0,
   padding = 50,
   cropRegion,
@@ -139,7 +152,12 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
   } | null>(null);
   const cursorTrailEnabledRef = useRef(cursorTrailEnabled);
   const inputTelemetryRef = useRef<InputTelemetryFileV1 | undefined>(inputTelemetry);
+  const customCursorEnabledRef = useRef(customCursorEnabled);
+  const customCursorSizeRef = useRef(customCursorSize);
+  const customCursorTelemetryRef = useRef<CustomCursorTelemetry | null>(customCursorTelemetry ?? null);
   const trailGraphicsRef = useRef<Graphics | null>(null);
+  const customCursorGraphicsRef = useRef<Graphics | null>(null);
+  const cursorEraserGraphicsRef = useRef<Graphics | null>(null);
 
   const clampFocusToStage = useCallback((focus: ZoomFocus, depth: ZoomDepth) => {
     return clampFocusToStageUtil(focus, depth, stageSizeRef.current);
@@ -426,6 +444,18 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
   }, [inputTelemetry]);
 
   useEffect(() => {
+    customCursorEnabledRef.current = customCursorEnabled;
+  }, [customCursorEnabled]);
+
+  useEffect(() => {
+    customCursorSizeRef.current = customCursorSize;
+  }, [customCursorSize]);
+
+  useEffect(() => {
+    customCursorTelemetryRef.current = customCursorTelemetry ?? buildSmoothedCursorTelemetry(inputTelemetry);
+  }, [customCursorTelemetry, inputTelemetry]);
+
+  useEffect(() => {
     if (!pixiReady || !videoReady) return;
 
     const app = appRef.current;
@@ -576,6 +606,15 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
       const trailGraphics = new Graphics();
       trailGraphicsRef.current = trailGraphics;
       cameraContainer.addChild(trailGraphics);
+
+      const cursorEraserGraphics = new Graphics();
+      cursorEraserGraphics.blendMode = 'erase' as any;
+      cursorEraserGraphicsRef.current = cursorEraserGraphics;
+      videoContainer.addChild(cursorEraserGraphics);
+
+      const customCursorGraphics = new Graphics();
+      customCursorGraphicsRef.current = customCursorGraphics;
+      cameraContainer.addChild(customCursorGraphics);
       
       setPixiReady(true);
     })();
@@ -591,6 +630,8 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
       videoContainerRef.current = null;
       videoSpriteRef.current = null;
       trailGraphicsRef.current = null;
+      customCursorGraphicsRef.current = null;
+      cursorEraserGraphicsRef.current = null;
     };
   }, []);
 
@@ -792,6 +833,85 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
       }
     };
 
+    const drawCustomCursorOverlay = () => {
+      const cursorGraphics = customCursorGraphicsRef.current;
+      cursorGraphics?.clear();
+      if (!cursorGraphics || !customCursorEnabledRef.current) return;
+
+      const telemetry = customCursorTelemetryRef.current;
+      const rawTelemetry = inputTelemetryRef.current;
+      if (!telemetry || !rawTelemetry) return;
+
+      const absoluteTimeMs = rawTelemetry.startedAtMs + currentTimeRef.current;
+      const sample = getCursorSampleAtTime(telemetry, absoluteTimeMs);
+      if (!sample) return;
+
+      const lockedVideo = lockedVideoDimensionsRef.current;
+      const sourceWidth = lockedVideo?.width || videoRef.current?.videoWidth || 0;
+      const sourceHeight = lockedVideo?.height || videoRef.current?.videoHeight || 0;
+      if (!sourceWidth || !sourceHeight) return;
+
+      const sourceX = sample.xNorm * sourceWidth;
+      const sourceY = sample.yNorm * sourceHeight;
+      const cropBounds = cropBoundsRef.current;
+      if (sourceX < cropBounds.startX || sourceX > cropBounds.endX || sourceY < cropBounds.startY || sourceY > cropBounds.endY) {
+        return;
+      }
+
+      const baseScale = baseScaleRef.current;
+      const baseOffset = baseOffsetRef.current;
+      const stageX = baseOffset.x + sourceX * baseScale;
+      const stageY = baseOffset.y + sourceY * baseScale;
+      const prev = getCursorSampleAtTime(telemetry, absoluteTimeMs - 16);
+      const prevStageX = prev ? baseOffset.x + prev.xNorm * sourceWidth * baseScale : stageX;
+      const prevStageY = prev ? baseOffset.y + prev.yNorm * sourceHeight * baseScale : stageY;
+      const velocityX = stageX - prevStageX;
+      const velocityY = stageY - prevStageY;
+      const pulse = getCursorClickPulse(telemetry.clicks, absoluteTimeMs);
+      drawCustomCursor(
+        cursorGraphics,
+        stageX,
+        stageY,
+        baseScale * customCursorSizeRef.current * 22,
+        sample.cursorType,
+        pulse,
+        velocityX,
+        velocityY
+      );
+    };
+
+    const eraseNativeCursor = () => {
+      const eraser = cursorEraserGraphicsRef.current;
+      eraser?.clear();
+      if (!eraser || !customCursorEnabledRef.current) return;
+
+      const telemetry = customCursorTelemetryRef.current;
+      const rawTelemetry = inputTelemetryRef.current;
+      if (!telemetry || !rawTelemetry) return;
+
+      const absoluteTimeMs = rawTelemetry.startedAtMs + currentTimeRef.current;
+      const sample = getCursorSampleAtTime(telemetry, absoluteTimeMs);
+      if (!sample) return;
+
+      const lockedVideo = lockedVideoDimensionsRef.current;
+      const sourceWidth = lockedVideo?.width || videoRef.current?.videoWidth || 0;
+      const sourceHeight = lockedVideo?.height || videoRef.current?.videoHeight || 0;
+      if (!sourceWidth || !sourceHeight) return;
+
+      const sourceX = sample.xNorm * sourceWidth;
+      const sourceY = sample.yNorm * sourceHeight;
+      const cropBounds = cropBoundsRef.current;
+      if (sourceX < cropBounds.startX || sourceX > cropBounds.endX || sourceY < cropBounds.startY || sourceY > cropBounds.endY) {
+        return;
+      }
+
+      const baseScale = baseScaleRef.current;
+      const localX = (sourceX - cropBounds.startX) * baseScale;
+      const localY = (sourceY - cropBounds.startY) * baseScale;
+      const radius = Math.max(5, baseScale * customCursorSizeRef.current * 9);
+      eraser.circle(localX, localY, radius).fill({ color: 0xffffff, alpha: 1 });
+    };
+
     const ticker = () => {
       const { region, strength } = findDominantRegion(zoomRegionsRef.current, currentTimeRef.current);
       
@@ -861,6 +981,8 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
 
       applyTransform(motionIntensity);
       drawCursorTrail();
+      eraseNativeCursor();
+      drawCustomCursorOverlay();
     };
 
     app.ticker.add(ticker);

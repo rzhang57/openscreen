@@ -24,6 +24,7 @@ export interface MouseDownEvent {
   x: number;
   y: number;
   button: number;
+  cursorType?: CursorVisualType;
 }
 
 export interface MouseUpEvent {
@@ -32,6 +33,7 @@ export interface MouseUpEvent {
   x: number;
   y: number;
   button: number;
+  cursorType?: CursorVisualType;
 }
 
 export interface MouseMoveSampledEvent {
@@ -39,6 +41,7 @@ export interface MouseMoveSampledEvent {
   ts: number;
   x: number;
   y: number;
+  cursorType?: CursorVisualType;
 }
 
 export interface WheelEvent {
@@ -48,6 +51,7 @@ export interface WheelEvent {
   y: number;
   deltaX: number;
   deltaY: number;
+  cursorType?: CursorVisualType;
 }
 
 export interface KeyDownCategoryEvent {
@@ -107,3 +111,12 @@ export interface StartInputTrackingPayload {
   sourceId?: string;
   sourceDisplayId?: string;
 }
+
+export type CursorVisualType =
+  | "default"
+  | "pointer"
+  | "text"
+  | "crosshair"
+  | "move"
+  | "grab"
+  | "grabbing";

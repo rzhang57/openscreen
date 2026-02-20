@@ -11,6 +11,9 @@ export interface RecorderOptions {
   cameraPreviewStream?: MediaStream | null;
   recordingPreset?: RecordingPreset;
   recordingFps?: RecordingFps;
+  customCursorEnabled?: boolean;
+  useLegacyRecorder?: boolean;
+  recordingCodec?: "h264_libx264" | "h264_nvenc" | "hevc_nvenc";
 }
 
 export type RecordingPreset = "performance" | "balanced" | "quality";
@@ -39,6 +42,9 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
   const startTime = useRef<number>(0);
   const sessionIdRef = useRef<string>("");
   const cameraStartTime = useRef<number | null>(null);
+  const nativeCaptureActiveRef = useRef(false);
+  const nativeCustomCursorEnabledRef = useRef(true);
+  const nativeRecordingCodecRef = useRef<"h264_libx264" | "h264_nvenc" | "hevc_nvenc">("h264_nvenc");
 
   const getCaptureProfile = (options: RecorderOptions): CaptureProfile => {
     const preset = options.recordingPreset ?? "quality";
@@ -69,6 +75,65 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
     return preferred.find(type => MediaRecorder.isTypeSupported(type)) ?? "video/webm";
   };
 
+  const createDesktopCaptureStream = async (
+    selectedSource: { id?: string; name?: string },
+    captureProfile: CaptureProfile,
+    customCursorEnabled: boolean
+  ) => {
+    const captureCursorMode = customCursorEnabled ? "never" : "motion";
+    const isScreenSource = typeof selectedSource.id === "string" && selectedSource.id.startsWith("screen:");
+
+    if (isScreenSource && typeof navigator.mediaDevices.getDisplayMedia === "function") {
+      try {
+        const displayStream = await (navigator.mediaDevices as MediaDevices).getDisplayMedia({
+          video: {
+            frameRate: { ideal: captureProfile.fps, max: captureProfile.fps },
+            width: { ideal: captureProfile.width, max: captureProfile.width },
+            height: { ideal: captureProfile.height, max: captureProfile.height },
+            displaySurface: "monitor",
+            cursor: captureCursorMode,
+          } as MediaTrackConstraints,
+          audio: false,
+        });
+        const track = displayStream.getVideoTracks()[0];
+        if (track && customCursorEnabled) {
+          try {
+            await track.applyConstraints(({
+              advanced: [{ cursor: "never" }],
+            } as unknown) as MediaTrackConstraints);
+          } catch {
+          }
+        }
+        return displayStream;
+      } catch (error) {
+        console.warn("getDisplayMedia failed, falling back to desktop source capture.", error);
+      }
+    }
+
+    const fallbackCursorMode = customCursorEnabled ? "never" : "motion";
+    const captureCursorOptional: Record<string, unknown>[] = [{ cursor: fallbackCursorMode }];
+    if (customCursorEnabled) {
+      captureCursorOptional.push({ googCaptureCursor: false });
+    }
+    return await (navigator.mediaDevices as any).getUserMedia({
+      audio: false,
+      video: {
+        cursor: fallbackCursorMode,
+        mandatory: {
+          chromeMediaSource: "desktop",
+          chromeMediaSourceId: selectedSource.id,
+          cursor: fallbackCursorMode,
+          ...(customCursorEnabled ? { googCaptureCursor: false } : {}),
+          maxWidth: captureProfile.width,
+          maxHeight: captureProfile.height,
+          maxFrameRate: captureProfile.fps,
+          minFrameRate: 30,
+        },
+        optional: captureCursorOptional,
+      },
+    });
+  };
+
   const computeBitrate = (width: number, height: number, fps: RecordingFps) => {
     const pixels = width * height;
     if (pixels >= 3840 * 2160) {
@@ -95,7 +160,81 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
     }
   };
 
+  const stopNativeCaptureFlow = async () => {
+    const sessionId = sessionIdRef.current;
+    setRecording(false);
+    window.electronAPI?.setRecordingState(false);
+    stopAllTracks();
+
+    let nativeResult: Awaited<ReturnType<typeof window.electronAPI.nativeCaptureStop>> | null = null;
+    let inputTelemetry: InputTelemetryFileV1 | undefined;
+    try {
+      nativeResult = await window.electronAPI.nativeCaptureStop({
+        sessionId,
+        finalize: true,
+      });
+    } catch (error) {
+      console.error("[native-capture] Failed to stop native capture", error);
+    } finally {
+      nativeCaptureActiveRef.current = false;
+    }
+
+    try {
+      const trackingResult = await window.electronAPI.stopInputTracking();
+      if (trackingResult.success && trackingResult.telemetry && trackingResult.telemetry.stats.totalEvents > 0) {
+        inputTelemetry = trackingResult.telemetry;
+      }
+    } catch (error) {
+      console.warn("[auto-zoom][telemetry] stopInputTracking failed after native capture", error);
+    }
+
+    if (!nativeResult?.success || !nativeResult.result?.outputPath) {
+      console.error("[native-capture] No output from native capture stop", nativeResult);
+      return;
+    }
+
+    const now = Date.now();
+    const durationMs = nativeResult.result.durationMs ?? Math.max(0, now - startTime.current);
+    const sessionPayload = {
+      screenVideoPath: nativeResult.result.outputPath,
+      inputTelemetry,
+      inputTelemetryFileName: inputTelemetry ? `${pathSafeSessionName(now)}.telemetry.json` : undefined,
+      session: {
+        id: sessionId || `session-${now}`,
+        startedAtMs: startTime.current,
+        micEnabled: false,
+        micCaptured: false,
+        cameraEnabled: false,
+        cameraCaptured: false,
+        screenDurationMs: durationMs,
+        requestedCaptureFps: undefined,
+        actualCaptureFps: nativeResult.result.fpsActual,
+        requestedCaptureWidth: undefined,
+        requestedCaptureHeight: undefined,
+        actualCaptureWidth: nativeResult.result.width,
+        actualCaptureHeight: nativeResult.result.height,
+        autoZoomGeneratedAtMs: undefined,
+        autoZoomAlgorithmVersion: undefined,
+        customCursorEnabled: nativeCustomCursorEnabledRef.current,
+        captureBackend: "native-sidecar",
+        recordingCodec: nativeRecordingCodecRef.current,
+      },
+    };
+
+    const stored = await window.electronAPI.storeNativeRecordingSession(sessionPayload);
+    if (!stored.success || !stored.session) {
+      console.error("[native-capture] Failed to store native recording session", stored.message);
+      return;
+    }
+    await window.electronAPI.setCurrentRecordingSession(stored.session);
+    await window.electronAPI.switchToEditor();
+  };
+
   const stopRecording = useRef(() => {
+    if (nativeCaptureActiveRef.current) {
+      void stopNativeCaptureFlow();
+      return;
+    }
     const screenRecording = mediaRecorder.current?.state === "recording";
     const camRecording = cameraRecorder.current?.state === "recording";
     if (!screenRecording && !camRecording) {
@@ -172,19 +311,63 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
         });
       }
 
-      const mediaStream = await (navigator.mediaDevices as any).getUserMedia({
-        audio: false,
-        video: {
-          mandatory: {
-            chromeMediaSource: "desktop",
-            chromeMediaSourceId: selectedSource.id,
-            maxWidth: captureProfile.width,
-            maxHeight: captureProfile.height,
-            maxFrameRate: captureProfile.fps,
-            minFrameRate: 30,
+      const canTryNativeCapture = typeof window.electronAPI?.nativeCaptureStart === "function";
+      nativeCustomCursorEnabledRef.current = Boolean(options.customCursorEnabled);
+      nativeRecordingCodecRef.current = options.recordingCodec || "h264_nvenc";
+      const sourceType = typeof selectedSource.id === "string" && selectedSource.id.startsWith("window:")
+        ? "window"
+        : "screen";
+      const shouldPreferNative = Boolean(options.customCursorEnabled) || !Boolean(options.useLegacyRecorder);
+      if (canTryNativeCapture && shouldPreferNative) {
+        const selectedCodec = options.recordingCodec || "h264_nvenc";
+        let nativeBitrate = computeBitrate(captureProfile.width, captureProfile.height, captureProfile.fps);
+        if (selectedCodec === "h264_nvenc") {
+          nativeBitrate = Math.max(8_000_000, Math.round(nativeBitrate * 0.8));
+        } else if (selectedCodec === "hevc_nvenc") {
+          nativeBitrate = Math.max(6_000_000, Math.round(nativeBitrate * 0.65));
+        }
+        const nativeStart = await window.electronAPI.nativeCaptureStart({
+          sessionId: sessionIdRef.current,
+          source: {
+            type: sourceType,
+            id: sourceId,
+            displayId: sourceDisplayId,
+            name: typeof selectedSource.name === "string" ? selectedSource.name : undefined,
           },
-        },
-      });
+          video: {
+            width: captureProfile.width,
+            height: captureProfile.height,
+            fps: captureProfile.fps,
+            bitrate: nativeBitrate,
+            codec: selectedCodec,
+          },
+          cursor: {
+            mode: options.customCursorEnabled ? "hide" : "system",
+          },
+          outputPath: `native-recording-${recordingStartedAtMs}.mp4`,
+          platform: (await window.electronAPI.getPlatform()) as "win32" | "darwin" | "linux",
+        });
+        if (nativeStart.success) {
+          nativeCaptureActiveRef.current = true;
+          setRecording(true);
+          window.electronAPI?.setRecordingState(true);
+          return;
+        }
+        if (options.customCursorEnabled) {
+          console.error("[native-capture] start failed while custom cursor is enabled", nativeStart.message);
+          window.electronAPI?.stopInputTracking().catch(() => {});
+          alert(`Native recorder failed to start: ${nativeStart.message || "unknown error"}. Custom cursor recording requires native recorder.`);
+          return;
+        }
+        console.warn("[native-capture] start failed, falling back to renderer capture", nativeStart.message);
+      }
+      nativeCaptureActiveRef.current = false;
+
+      const mediaStream = await createDesktopCaptureStream(
+        selectedSource,
+        captureProfile,
+        Boolean(options.customCursorEnabled)
+      );
       stream.current = mediaStream;
       if (!stream.current) {
         throw new Error("Media stream is not available.");
@@ -249,11 +432,19 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 
       const videoTrack = stream.current.getVideoTracks()[0];
       try {
-        await videoTrack.applyConstraints({
+        const baseConstraints: MediaTrackConstraints = {
           frameRate: { ideal: captureProfile.fps, max: captureProfile.fps },
           width: { ideal: captureProfile.width, max: captureProfile.width },
           height: { ideal: captureProfile.height, max: captureProfile.height },
-        });
+        };
+        if (options.customCursorEnabled) {
+          // Some Chromium builds only honor cursor hiding as an advanced constraint on the track.
+          (baseConstraints as MediaTrackConstraints & { advanced?: Array<Record<string, unknown>> }).advanced = [
+            { cursor: "never" },
+            { googCaptureCursor: false },
+          ];
+        }
+        await videoTrack.applyConstraints(baseConstraints);
       } catch (error) {
         console.warn("Unable to lock requested capture constraints, using best available track settings.", error);
       }
@@ -406,6 +597,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
               actualCaptureHeight: height,
               autoZoomGeneratedAtMs: undefined,
               autoZoomAlgorithmVersion: undefined,
+              customCursorEnabled: Boolean(options.customCursorEnabled),
             },
           };
 
@@ -467,9 +659,16 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
       cameraEnabled: false,
       recordingPreset: "quality",
       recordingFps: 60,
+      customCursorEnabled: true,
+      useLegacyRecorder: false,
+      recordingCodec: "h264_nvenc",
     };
     startRecording(resolvedOptions);
   };
 
   return { recording, toggleRecording };
+}
+
+function pathSafeSessionName(ts: number) {
+  return `recording-${ts}`;
 }

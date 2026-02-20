@@ -60,6 +60,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     selectedCameraDeviceId?: string
     recordingPreset?: 'performance' | 'balanced' | 'quality'
     recordingFps?: 60 | 120
+    customCursorEnabled?: boolean
+    useLegacyRecorder?: boolean
+    recordingCodec?: 'h264_libx264' | 'h264_nvenc' | 'hevc_nvenc'
   }) => {
     return ipcRenderer.invoke('update-hud-settings', partial)
   },
@@ -90,9 +93,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     cameraEnabled: boolean
     cameraPreviewEnabled: boolean
     selectedCameraDeviceId: string
-    recordingPreset: 'performance' | 'balanced' | 'quality'
-    recordingFps: 60 | 120
-  }) => void) => {
+      recordingPreset: 'performance' | 'balanced' | 'quality'
+      recordingFps: 60 | 120
+      customCursorEnabled: boolean
+      useLegacyRecorder: boolean
+      recordingCodec: 'h264_libx264' | 'h264_nvenc' | 'hevc_nvenc'
+    }) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, settings: {
       micEnabled: boolean
       selectedMicDeviceId: string
@@ -102,6 +108,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
       selectedCameraDeviceId: string
       recordingPreset: 'performance' | 'balanced' | 'quality'
       recordingFps: 60 | 120
+      customCursorEnabled: boolean
+      useLegacyRecorder: boolean
+      recordingCodec: 'h264_libx264' | 'h264_nvenc' | 'hevc_nvenc'
     }) => callback(settings)
     ipcRenderer.on('hud-settings-updated', listener)
     return () => ipcRenderer.removeListener('hud-settings-updated', listener)
@@ -127,6 +136,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   }) => {
     return ipcRenderer.invoke('store-recording-session', payload)
   },
+  storeNativeRecordingSession: (payload: {
+    screenVideoPath: string
+    cameraVideoData?: ArrayBuffer
+    cameraFileName?: string
+    inputTelemetry?: import('../src/types/inputTelemetry').InputTelemetryFileV1
+    inputTelemetryFileName?: string
+    session: Record<string, unknown>
+  }) => {
+    return ipcRenderer.invoke('store-native-recording-session', payload)
+  },
   startInputTracking: (payload: {
     sessionId: string
     startedAtMs: number
@@ -137,6 +156,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   stopInputTracking: () => {
     return ipcRenderer.invoke('stop-input-tracking')
+  },
+  nativeCaptureStart: (payload: import('../src/types/nativeCapture').NativeCaptureStartPayload) => {
+    return ipcRenderer.invoke('native-capture-start', payload)
+  },
+  nativeCaptureStop: (payload: import('../src/types/nativeCapture').NativeCaptureStopPayload) => {
+    return ipcRenderer.invoke('native-capture-stop', payload)
+  },
+  nativeCaptureStatus: (sessionId?: string) => {
+    return ipcRenderer.invoke('native-capture-status', sessionId)
   },
 
   getRecordedVideoPath: () => {
