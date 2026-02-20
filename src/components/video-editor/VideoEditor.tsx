@@ -46,6 +46,7 @@ const AUTO_ZOOM_INTENSITY_OPTIONS: Array<{ value: AutoZoomIntensity; label: stri
   { value: "balanced", label: "Balanced" },
   { value: "intense", label: "Intense" },
 ];
+const EXPORT_DIRECTORY_STORAGE_KEY = "openscreen.exportDirectory";
 
 export default function VideoEditor() {
   const [videoPath, setVideoPath] = useState<string | null>(null);
@@ -87,6 +88,7 @@ export default function VideoEditor() {
   const [gifFrameRate, setGifFrameRate] = useState<GifFrameRate>(15);
   const [gifLoop, setGifLoop] = useState(true);
   const [gifSizePreset, setGifSizePreset] = useState<GifSizePreset>('medium');
+  const [exportDirectory, setExportDirectory] = useState<string>("");
 
   const videoPlaybackRef = useRef<VideoPlaybackRef>(null);
   const nextZoomIdRef = useRef(1);
@@ -495,6 +497,29 @@ export default function VideoEditor() {
     );
   }, []);
 
+  useEffect(() => {
+    const loadExportDirectory = async () => {
+      const stored = localStorage.getItem(EXPORT_DIRECTORY_STORAGE_KEY);
+      if (stored) {
+        setExportDirectory(stored);
+        return;
+      }
+      const result = await window.electronAPI.getDefaultExportDirectory();
+      if (result.success && result.path) {
+        setExportDirectory(result.path);
+      }
+    };
+    loadExportDirectory().catch((error) => {
+      console.warn("Failed to load export directory:", error);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (exportDirectory) {
+      localStorage.setItem(EXPORT_DIRECTORY_STORAGE_KEY, exportDirectory);
+    }
+  }, [exportDirectory]);
+
   const handleZoomDepthChangeForId = useCallback((id: string, depth: ZoomDepth) => {
     const clampedDepth = clampZoomDepth(depth);
     setZoomRegions((prev) =>
@@ -723,7 +748,13 @@ export default function VideoEditor() {
     }
 
     setIsExporting(true);
-    setExportProgress(null);
+    setExportProgress({
+      currentFrame: 0,
+      totalFrames: 1,
+      percentage: 0,
+      estimatedTimeRemaining: 0,
+      phase: 'initializing',
+    });
     setExportError(null);
 
     try {
@@ -780,12 +811,16 @@ export default function VideoEditor() {
           const arrayBuffer = await result.blob.arrayBuffer();
           const timestamp = Date.now();
           const fileName = `export-${timestamp}.gif`;
+          const targetDirectory = exportDirectory || (await window.electronAPI.getDefaultExportDirectory()).path;
+          if (!targetDirectory) {
+            throw new Error("No export directory available");
+          }
 
-          const saveResult = await window.electronAPI.saveExportedVideo(arrayBuffer, fileName);
-
-          if (saveResult.cancelled) {
-            toast.info('Export cancelled');
-          } else if (saveResult.success) {
+          const saveResult = await window.electronAPI.saveExportedVideoToDirectory(arrayBuffer, fileName, targetDirectory);
+          if (saveResult.success) {
+            if (!exportDirectory) {
+              setExportDirectory(targetDirectory);
+            }
             toast.success(`GIF exported successfully to ${saveResult.path}`);
           } else {
             setExportError(saveResult.message || 'Failed to save GIF');
@@ -857,12 +892,16 @@ export default function VideoEditor() {
           const arrayBuffer = await result.blob.arrayBuffer();
           const timestamp = Date.now();
           const fileName = `export-${timestamp}.mp4`;
+          const targetDirectory = exportDirectory || (await window.electronAPI.getDefaultExportDirectory()).path;
+          if (!targetDirectory) {
+            throw new Error("No export directory available");
+          }
 
-          const saveResult = await window.electronAPI.saveExportedVideo(arrayBuffer, fileName);
-
-          if (saveResult.cancelled) {
-            toast.info('Export cancelled');
-          } else if (saveResult.success) {
+          const saveResult = await window.electronAPI.saveExportedVideoToDirectory(arrayBuffer, fileName, targetDirectory);
+          if (saveResult.success) {
+            if (!exportDirectory) {
+              setExportDirectory(targetDirectory);
+            }
             toast.success(`Video exported successfully to ${saveResult.path}`);
           } else {
             setExportError(saveResult.message || 'Failed to save video');
@@ -890,7 +929,7 @@ export default function VideoEditor() {
       setShowExportDialog(false);
       setExportProgress(null);
     }
-  }, [videoPath, cameraVideoPath, recordingSession, cameraHiddenRegions, wallpaper, zoomRegions, trimRegions, shadowIntensity, showBlur, motionBlurEnabled, cursorTrailEnabled, borderRadius, padding, cropRegion, annotationRegions, isPlaying, aspectRatio, mp4FrameRate, mp4Resolution]);
+  }, [videoPath, cameraVideoPath, recordingSession, cameraHiddenRegions, wallpaper, zoomRegions, trimRegions, shadowIntensity, showBlur, motionBlurEnabled, cursorTrailEnabled, borderRadius, padding, cropRegion, annotationRegions, isPlaying, aspectRatio, mp4FrameRate, mp4Resolution, exportDirectory]);
 
   const handleOpenExportDialog = useCallback(() => {
     if (!videoPath) {
@@ -930,6 +969,33 @@ export default function VideoEditor() {
     // Start export immediately
     handleExport(settings);
   }, [videoPath, exportFormat, mp4FrameRate, mp4Resolution, gifFrameRate, gifLoop, gifSizePreset, handleExport]);
+
+  const handleChooseExportDirectory = useCallback(async () => {
+    const result = await window.electronAPI.chooseExportDirectory(exportDirectory || undefined);
+    if (result.success && result.path) {
+      setExportDirectory(result.path);
+      toast.success(`Export folder set to ${result.path}`);
+    } else if (!result.cancelled) {
+      toast.error(result.message || 'Failed to choose export folder');
+    }
+  }, [exportDirectory]);
+
+  const handleOpenExportDirectory = useCallback(async () => {
+    if (!exportDirectory) {
+      const fallback = await window.electronAPI.getDefaultExportDirectory();
+      if (fallback.success && fallback.path) {
+        setExportDirectory(fallback.path);
+        await window.electronAPI.openDirectory(fallback.path);
+      } else {
+        toast.error('No export folder configured');
+      }
+      return;
+    }
+    const result = await window.electronAPI.openDirectory(exportDirectory);
+    if (!result.success) {
+      toast.error(result.message || 'Failed to open export folder');
+    }
+  }, [exportDirectory]);
 
   const handleCancelExport = useCallback(() => {
     if (exporterRef.current) {
@@ -1146,6 +1212,9 @@ export default function VideoEditor() {
           onGifLoopChange={setGifLoop}
           gifSizePreset={gifSizePreset}
           onGifSizePresetChange={setGifSizePreset}
+          exportDirectory={exportDirectory}
+          onChooseExportDirectory={handleChooseExportDirectory}
+          onOpenExportDirectory={handleOpenExportDirectory}
           gifOutputDimensions={calculateOutputDimensions(
             videoPlaybackRef.current?.video?.videoWidth || 1920,
             videoPlaybackRef.current?.video?.videoHeight || 1080,

@@ -85,10 +85,41 @@ export class GifExporter {
     try {
       this.cleanup();
       this.cancelled = false;
+      const exportStartedAtMs = Date.now();
+      const estimateRemainingSeconds = (processedFrames: number, totalFrames: number): number => {
+        if (processedFrames <= 0 || totalFrames <= 0) return 0;
+        const elapsedSeconds = (Date.now() - exportStartedAtMs) / 1000;
+        if (elapsedSeconds <= 0) return 0;
+        const framesPerSecond = processedFrames / elapsedSeconds;
+        if (framesPerSecond <= 0) return 0;
+        return Math.max(0, Math.round((totalFrames - processedFrames) / framesPerSecond));
+      };
+
+      this.config.onProgress?.({
+        currentFrame: 0,
+        totalFrames: 1,
+        percentage: 0,
+        estimatedTimeRemaining: 0,
+        phase: 'initializing',
+      });
 
       // Initialize streaming decoder and load video metadata
+      this.config.onProgress?.({
+        currentFrame: 0,
+        totalFrames: 1,
+        percentage: 5,
+        estimatedTimeRemaining: 0,
+        phase: 'initializing',
+      });
       this.streamingDecoder = new StreamingVideoDecoder();
       const videoInfo = await this.streamingDecoder.loadMetadata(this.config.videoUrl);
+      this.config.onProgress?.({
+        currentFrame: 0,
+        totalFrames: 1,
+        percentage: 12,
+        estimatedTimeRemaining: 0,
+        phase: 'initializing',
+      });
 
       // Initialize frame renderer
       this.renderer = new FrameRenderer({
@@ -115,6 +146,13 @@ export class GifExporter {
         previewHeight: this.config.previewHeight,
       });
       await this.renderer.initialize();
+      this.config.onProgress?.({
+        currentFrame: 0,
+        totalFrames: 1,
+        percentage: 18,
+        estimatedTimeRemaining: 0,
+        phase: 'initializing',
+      });
 
       // Initialize GIF encoder
       // Loop: 0 = infinite loop, 1 = play once (no loop)
@@ -131,10 +169,18 @@ export class GifExporter {
         transparent: null,
         dither: 'FloydSteinberg',
       });
+      this.config.onProgress?.({
+        currentFrame: 0,
+        totalFrames: 1,
+        percentage: 24,
+        estimatedTimeRemaining: 0,
+        phase: 'initializing',
+      });
 
       // Calculate effective duration and frame count (excluding trim regions)
       const effectiveDuration = this.streamingDecoder.getEffectiveDuration(this.config.trimRegions);
       const totalFrames = Math.ceil(effectiveDuration * this.config.frameRate);
+      const safeTotalFrames = Math.max(1, totalFrames);
 
       // Calculate frame delay in milliseconds (gif.js uses ms)
       const frameDelay = Math.round(1000 / this.config.frameRate);
@@ -148,6 +194,15 @@ export class GifExporter {
       console.log('[GifExporter] Using streaming decode (web-demuxer + VideoDecoder)');
 
       let frameIndex = 0;
+      const EXTRACT_PROGRESS_START = 24;
+      const EXTRACT_PROGRESS_END = 92;
+      this.config.onProgress?.({
+        currentFrame: 0,
+        totalFrames: safeTotalFrames,
+        percentage: EXTRACT_PROGRESS_START,
+        estimatedTimeRemaining: 0,
+        phase: 'extracting',
+      });
 
       // Stream decode and process frames — no seeking!
       await this.streamingDecoder.decodeAll(
@@ -176,9 +231,10 @@ export class GifExporter {
           if (this.config.onProgress) {
             this.config.onProgress({
               currentFrame: frameIndex,
-              totalFrames,
-              percentage: (frameIndex / totalFrames) * 100,
-              estimatedTimeRemaining: 0,
+              totalFrames: safeTotalFrames,
+              percentage: EXTRACT_PROGRESS_START + ((frameIndex / safeTotalFrames) * (EXTRACT_PROGRESS_END - EXTRACT_PROGRESS_START)),
+              estimatedTimeRemaining: estimateRemainingSeconds(frameIndex, safeTotalFrames),
+              phase: 'extracting',
             });
           }
         }
@@ -191,9 +247,9 @@ export class GifExporter {
       // Update progress to show we're now in the finalizing phase
       if (this.config.onProgress) {
         this.config.onProgress({
-          currentFrame: totalFrames,
-          totalFrames,
-          percentage: 100,
+          currentFrame: safeTotalFrames,
+          totalFrames: safeTotalFrames,
+          percentage: 99,
           estimatedTimeRemaining: 0,
           phase: 'finalizing',
         });
@@ -202,6 +258,16 @@ export class GifExporter {
       // Render the GIF
       const blob = await new Promise<Blob>((resolve, _reject) => {
         this.gif!.on('finished', (blob: Blob) => {
+          if (this.config.onProgress) {
+            this.config.onProgress({
+              currentFrame: safeTotalFrames,
+              totalFrames: safeTotalFrames,
+              percentage: 100,
+              estimatedTimeRemaining: 0,
+              phase: 'finalizing',
+              renderProgress: 100,
+            });
+          }
           resolve(blob);
         });
 
@@ -209,8 +275,8 @@ export class GifExporter {
         this.gif!.on('progress', (progress: number) => {
           if (this.config.onProgress) {
             this.config.onProgress({
-              currentFrame: totalFrames,
-              totalFrames,
+              currentFrame: safeTotalFrames,
+              totalFrames: safeTotalFrames,
               percentage: 100,
               estimatedTimeRemaining: 0,
               phase: 'finalizing',

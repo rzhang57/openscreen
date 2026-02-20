@@ -39,8 +39,72 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setHudOverlayWidth: (width: number) => {
     return ipcRenderer.invoke('set-hud-overlay-width', width)
   },
-  setHudOverlayHeight: (height: number) => {
-    return ipcRenderer.invoke('set-hud-overlay-height', height)
+  setHudOverlayHeight: (height: number, anchor?: 'top' | 'bottom') => {
+    return ipcRenderer.invoke('set-hud-overlay-height', height, anchor)
+  },
+  getHudOverlayPopoverSide: () => {
+    return ipcRenderer.invoke('get-hud-overlay-popover-side')
+  },
+  getHudSettings: () => {
+    return ipcRenderer.invoke('get-hud-settings')
+  },
+  preloadHudPopoverWindows: () => {
+    return ipcRenderer.invoke('preload-hud-popover-windows')
+  },
+  updateHudSettings: (partial: {
+    micEnabled?: boolean
+    selectedMicDeviceId?: string
+    micProcessingMode?: 'raw' | 'cleaned'
+    cameraEnabled?: boolean
+    cameraPreviewEnabled?: boolean
+    selectedCameraDeviceId?: string
+    recordingPreset?: 'performance' | 'balanced' | 'quality'
+    recordingFps?: 60 | 120
+  }) => {
+    return ipcRenderer.invoke('update-hud-settings', partial)
+  },
+  openHudPopoverWindow: (payload: {
+    kind: 'recording' | 'media'
+    anchorRect: { x: number; y: number; width: number; height: number }
+    side: 'top' | 'bottom'
+  }) => {
+    return ipcRenderer.invoke('open-hud-popover-window', payload)
+  },
+  toggleHudPopoverWindow: (payload: {
+    kind: 'recording' | 'media'
+    anchorRect: { x: number; y: number; width: number; height: number }
+    side: 'top' | 'bottom'
+  }) => {
+    return ipcRenderer.invoke('toggle-hud-popover-window', payload)
+  },
+  closeHudPopoverWindow: (kind?: 'recording' | 'media') => {
+    return ipcRenderer.invoke('close-hud-popover-window', kind)
+  },
+  closeCurrentHudPopoverWindow: () => {
+    return ipcRenderer.invoke('close-current-hud-popover-window')
+  },
+  onHudSettingsUpdated: (callback: (settings: {
+    micEnabled: boolean
+    selectedMicDeviceId: string
+    micProcessingMode: 'raw' | 'cleaned'
+    cameraEnabled: boolean
+    cameraPreviewEnabled: boolean
+    selectedCameraDeviceId: string
+    recordingPreset: 'performance' | 'balanced' | 'quality'
+    recordingFps: 60 | 120
+  }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, settings: {
+      micEnabled: boolean
+      selectedMicDeviceId: string
+      micProcessingMode: 'raw' | 'cleaned'
+      cameraEnabled: boolean
+      cameraPreviewEnabled: boolean
+      selectedCameraDeviceId: string
+      recordingPreset: 'performance' | 'balanced' | 'quality'
+      recordingFps: 60 | 120
+    }) => callback(settings)
+    ipcRenderer.on('hud-settings-updated', listener)
+    return () => ipcRenderer.removeListener('hud-settings-updated', listener)
   },
   selectSource: (source: any) => {
     return ipcRenderer.invoke('select-source', source)
@@ -91,6 +155,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   saveExportedVideo: (videoData: ArrayBuffer, fileName: string) => {
     return ipcRenderer.invoke('save-exported-video', videoData, fileName)
+  },
+  getDefaultExportDirectory: () => {
+    return ipcRenderer.invoke('get-default-export-directory')
+  },
+  chooseExportDirectory: (currentPath?: string) => {
+    return ipcRenderer.invoke('choose-export-directory', currentPath)
+  },
+  saveExportedVideoToDirectory: (videoData: ArrayBuffer, fileName: string, directoryPath: string) => {
+    return ipcRenderer.invoke('save-exported-video-to-directory', videoData, fileName, directoryPath)
+  },
+  openDirectory: (directoryPath: string) => {
+    return ipcRenderer.invoke('open-directory', directoryPath)
   },
   openVideoFilePicker: () => {
     return ipcRenderer.invoke('open-video-file-picker')

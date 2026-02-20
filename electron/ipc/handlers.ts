@@ -1,15 +1,50 @@
-import { ipcMain, desktopCapturer, BrowserWindow, shell, app, dialog, screen } from 'electron'
+import { ipcMain, desktopCapturer, BrowserWindow, shell, app, dialog, screen, type Rectangle } from 'electron'
 
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { RECORDINGS_DIR } from '../main'
+import { fileURLToPath } from 'node:url'
+import { RECORDINGS_DIR, VITE_DEV_SERVER_URL, RENDERER_DIST } from '../main'
 import { InputTrackingService } from '../services/inputTrackingService'
 import type { InputTelemetryFileV1 } from '@/types/inputTelemetry'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 let selectedSource: any = null
 let currentVideoPath: string | null = null
 let currentRecordingSession: any = null
 const inputTrackingService = new InputTrackingService()
+const DEFAULT_EXPORTS_DIR = path.join(app.getPath('documents'), 'OpenScreen Exports')
+type HudPopoverKind = 'recording' | 'media'
+type HudPopoverSide = 'top' | 'bottom'
+
+type HudSettings = {
+  micEnabled: boolean
+  selectedMicDeviceId: string
+  micProcessingMode: 'raw' | 'cleaned'
+  cameraEnabled: boolean
+  cameraPreviewEnabled: boolean
+  selectedCameraDeviceId: string
+  recordingPreset: 'performance' | 'balanced' | 'quality'
+  recordingFps: 60 | 120
+}
+
+const hudSettings: HudSettings = {
+  micEnabled: true,
+  selectedMicDeviceId: '',
+  micProcessingMode: 'cleaned',
+  cameraEnabled: false,
+  cameraPreviewEnabled: true,
+  selectedCameraDeviceId: '',
+  recordingPreset: 'quality',
+  recordingFps: 60,
+}
+
+let recordingPopoverWindow: BrowserWindow | null = null
+let mediaPopoverWindow: BrowserWindow | null = null
+const popoverAnchors: Partial<Record<HudPopoverKind, {
+  anchorRect: { x: number; y: number; width: number; height: number }
+  side: HudPopoverSide
+}>> = {}
 
 function getTelemetryFilePath(videoPath: string) {
   const parsed = path.parse(videoPath)
@@ -53,6 +88,176 @@ export function registerIpcHandlers(
   getCameraPreviewWindow: () => BrowserWindow | null,
   onRecordingStateChange?: (recording: boolean, sourceName: string) => void
 ) {
+  const getPopoverWindow = (kind: HudPopoverKind) => (kind === 'recording' ? recordingPopoverWindow : mediaPopoverWindow)
+  const setPopoverWindow = (kind: HudPopoverKind, win: BrowserWindow | null) => {
+    if (kind === 'recording') {
+      recordingPopoverWindow = win
+      if (!win) {
+        delete popoverAnchors.recording
+      }
+      return
+    }
+    mediaPopoverWindow = win
+    if (!win) {
+      delete popoverAnchors.media
+    }
+  }
+
+  const closeHudPopoverWindows = () => {
+    const windows = [recordingPopoverWindow, mediaPopoverWindow]
+    for (const win of windows) {
+      if (win && !win.isDestroyed()) {
+        win.close()
+      }
+    }
+    recordingPopoverWindow = null
+    mediaPopoverWindow = null
+    delete popoverAnchors.recording
+    delete popoverAnchors.media
+  }
+
+  const computePopoverBounds = (
+    mainBounds: Rectangle,
+    kind: HudPopoverKind,
+    anchorRect: { x: number; y: number; width: number; height: number },
+    side: HudPopoverSide
+  ) => {
+    const popoverSize = kind === 'recording'
+      ? { width: 340, height: 230 }
+      : { width: 360, height: 290 }
+    const margin = 8
+    const absoluteAnchor = {
+      x: mainBounds.x + anchorRect.x,
+      y: mainBounds.y + anchorRect.y,
+      width: anchorRect.width,
+      height: anchorRect.height,
+    }
+    const display = screen.getDisplayMatching(mainBounds)
+    const workArea = display.workArea
+    const centeredX = absoluteAnchor.x + Math.round((absoluteAnchor.width - popoverSize.width) / 2)
+    const maxX = workArea.x + workArea.width - popoverSize.width
+    const x = Math.max(workArea.x, Math.min(centeredX, maxX))
+    const preferredY = side === 'top'
+      ? absoluteAnchor.y - popoverSize.height - margin
+      : absoluteAnchor.y + absoluteAnchor.height + margin
+    const maxY = workArea.y + workArea.height - popoverSize.height
+    const y = Math.max(workArea.y, Math.min(preferredY, maxY))
+    return { x, y, width: popoverSize.width, height: popoverSize.height }
+  }
+
+  const broadcastHudSettings = () => {
+    BrowserWindow.getAllWindows().forEach((win) => {
+      if (!win.isDestroyed()) {
+        win.webContents.send('hud-settings-updated', hudSettings)
+      }
+    })
+  }
+
+  const createHudPopoverWindow = (
+    kind: HudPopoverKind,
+    bounds: { x: number; y: number; width: number; height: number }
+  ) => {
+    const popoverWindow = new BrowserWindow({
+      width: bounds.width,
+      height: bounds.height,
+      resizable: false,
+      frame: false,
+      transparent: true,
+      show: false,
+      hasShadow: false,
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      x: bounds.x,
+      y: bounds.y,
+      webPreferences: {
+        preload: path.join(__dirname, '../preload.mjs'),
+        nodeIntegration: false,
+        contextIsolation: true,
+        backgroundThrottling: false,
+      },
+    })
+
+    popoverWindow.on('closed', () => {
+      setPopoverWindow(kind, null)
+    })
+
+    if (VITE_DEV_SERVER_URL) {
+      const url = new URL(VITE_DEV_SERVER_URL)
+      url.searchParams.set('windowType', 'hud-popover')
+      url.searchParams.set('kind', kind)
+      popoverWindow.loadURL(url.toString())
+    } else {
+      popoverWindow.loadFile(path.join(RENDERER_DIST, 'index.html'), {
+        query: { windowType: 'hud-popover', kind },
+      })
+    }
+
+    setPopoverWindow(kind, popoverWindow)
+    return popoverWindow
+  }
+
+  const openHudPopoverWindow = (
+    kind: HudPopoverKind,
+    anchorRect: { x: number; y: number; width: number; height: number },
+    side: HudPopoverSide
+  ) => {
+    const mainWin = getMainWindow()
+    if (!mainWin || mainWin.isDestroyed()) {
+      return { success: false as const, message: 'HUD window unavailable' }
+    }
+    popoverAnchors[kind] = { anchorRect, side }
+    const bounds = computePopoverBounds(mainWin.getBounds(), kind, anchorRect, side)
+
+    const existing = getPopoverWindow(kind)
+    if (existing && !existing.isDestroyed()) {
+      existing.setBounds(bounds, false)
+      const showReady = () => {
+        if (existing.isDestroyed()) return
+        if (!existing.isVisible()) {
+          existing.show()
+        }
+        existing.webContents.send('hud-settings-updated', hudSettings)
+      }
+      if (existing.webContents.isLoadingMainFrame()) {
+        existing.webContents.once('did-finish-load', showReady)
+      } else {
+        showReady()
+      }
+      return { success: true as const }
+    }
+
+    const popoverWindow = createHudPopoverWindow(kind, bounds)
+
+    popoverWindow.webContents.once('did-finish-load', () => {
+      if (!popoverWindow.isDestroyed()) {
+        popoverWindow.webContents.send('hud-settings-updated', hudSettings)
+        popoverWindow.show()
+      }
+    })
+
+    return { success: true as const }
+  }
+
+  const ensureDirectoryExists = async (directoryPath: string) => {
+    await fs.mkdir(directoryPath, { recursive: true })
+  }
+
+  const getUniqueFilePath = async (directoryPath: string, fileName: string) => {
+    const parsed = path.parse(fileName)
+    let candidate = path.join(directoryPath, fileName)
+    let suffix = 1
+
+    while (true) {
+      try {
+        await fs.access(candidate)
+        candidate = path.join(directoryPath, `${parsed.name} (${suffix})${parsed.ext}`)
+        suffix += 1
+      } catch {
+        return candidate
+      }
+    }
+  }
+
   const deleteFileIfExists = async (filePath?: string) => {
     if (!filePath) return
     try {
@@ -155,6 +360,7 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle('switch-to-editor', () => {
+    closeHudPopoverWindows()
     const mainWin = getMainWindow()
     if (mainWin) {
       mainWin.close()
@@ -202,7 +408,111 @@ export function registerIpcHandlers(
 
     currentRecordingSession = null
     currentVideoPath = null
+    closeHudPopoverWindows()
     createHudOverlayWindow()
+    return { success: true }
+  })
+
+  ipcMain.handle('get-hud-settings', () => {
+    return { success: true, settings: hudSettings }
+  })
+
+  ipcMain.handle('preload-hud-popover-windows', () => {
+    const mainWin = getMainWindow()
+    if (!mainWin || mainWin.isDestroyed()) {
+      return { success: false, message: 'HUD window unavailable' }
+    }
+
+    const mainBounds = mainWin.getBounds()
+    const baseAnchor = { x: Math.max(16, Math.floor(mainBounds.width / 2) - 10), y: Math.max(16, Math.floor(mainBounds.height / 2) - 10), width: 20, height: 20 }
+
+    ;(['recording', 'media'] as const).forEach((kind) => {
+      const existing = getPopoverWindow(kind)
+      if (existing && !existing.isDestroyed()) {
+        return
+      }
+      const bounds = computePopoverBounds(mainBounds, kind, baseAnchor, 'top')
+      createHudPopoverWindow(kind, bounds)
+    })
+
+    return { success: true }
+  })
+
+  ipcMain.handle('update-hud-settings', (_, partial: Partial<HudSettings>) => {
+    if (typeof partial.micEnabled === 'boolean') hudSettings.micEnabled = partial.micEnabled
+    if (typeof partial.selectedMicDeviceId === 'string') hudSettings.selectedMicDeviceId = partial.selectedMicDeviceId
+    if (partial.micProcessingMode === 'raw' || partial.micProcessingMode === 'cleaned') hudSettings.micProcessingMode = partial.micProcessingMode
+    if (typeof partial.cameraEnabled === 'boolean') hudSettings.cameraEnabled = partial.cameraEnabled
+    if (typeof partial.cameraPreviewEnabled === 'boolean') hudSettings.cameraPreviewEnabled = partial.cameraPreviewEnabled
+    if (typeof partial.selectedCameraDeviceId === 'string') hudSettings.selectedCameraDeviceId = partial.selectedCameraDeviceId
+    if (partial.recordingPreset === 'performance' || partial.recordingPreset === 'balanced' || partial.recordingPreset === 'quality') {
+      hudSettings.recordingPreset = partial.recordingPreset
+    }
+    if (partial.recordingFps === 60 || partial.recordingFps === 120) hudSettings.recordingFps = partial.recordingFps
+    broadcastHudSettings()
+    return { success: true, settings: hudSettings }
+  })
+
+  ipcMain.handle('open-hud-popover-window', (_, payload: {
+    kind: HudPopoverKind
+    anchorRect: { x: number; y: number; width: number; height: number }
+    side: HudPopoverSide
+  }) => {
+    if (payload.kind !== 'recording' && payload.kind !== 'media') {
+      return { success: false, message: 'Invalid popover kind' }
+    }
+    return openHudPopoverWindow(payload.kind, payload.anchorRect, payload.side)
+  })
+
+  ipcMain.handle('toggle-hud-popover-window', (_, payload: {
+    kind: HudPopoverKind
+    anchorRect: { x: number; y: number; width: number; height: number }
+    side: HudPopoverSide
+  }) => {
+    if (payload.kind !== 'recording' && payload.kind !== 'media') {
+      return { success: false, message: 'Invalid popover kind' }
+    }
+    const existing = getPopoverWindow(payload.kind)
+    if (existing && !existing.isDestroyed() && existing.isVisible()) {
+      existing.hide()
+      return { success: true, opened: false as const }
+    }
+    const result = openHudPopoverWindow(payload.kind, payload.anchorRect, payload.side)
+    return { ...result, opened: true as const }
+  })
+
+  ipcMain.handle('close-hud-popover-window', (_, kind?: HudPopoverKind) => {
+    if (!kind) {
+      [recordingPopoverWindow, mediaPopoverWindow].forEach((win) => {
+        if (win && !win.isDestroyed()) {
+          win.hide()
+        }
+      })
+      return { success: true }
+    }
+    const win = getPopoverWindow(kind)
+    if (win && !win.isDestroyed()) {
+      win.hide()
+    }
+    return { success: true }
+  })
+
+  ipcMain.handle('close-current-hud-popover-window', (event) => {
+    const senderWindow = BrowserWindow.fromWebContents(event.sender)
+    if (!senderWindow || senderWindow.isDestroyed()) {
+      return { success: false }
+    }
+
+    if (senderWindow === recordingPopoverWindow) {
+      senderWindow.hide()
+      return { success: true }
+    }
+    if (senderWindow === mediaPopoverWindow) {
+      senderWindow.hide()
+      return { success: true }
+    }
+
+    senderWindow.hide()
     return { success: true }
   })
 
@@ -212,41 +522,64 @@ export function registerIpcHandlers(
       return { success: false }
     }
 
-    const clampedWidth = Math.max(500, Math.min(1100, Math.round(width)))
+    const clampedWidth = Math.max(500, Math.min(1400, Math.round(width)))
     const bounds = mainWin.getBounds()
     const display = screen.getDisplayMatching(bounds)
     const workArea = display.workArea
-    const x = Math.floor(workArea.x + (workArea.width - clampedWidth) / 2)
-    const y = Math.floor(workArea.y + workArea.height - bounds.height - 5)
+    const centerX = bounds.x + (bounds.width / 2)
+    const maxX = workArea.x + workArea.width - clampedWidth
+    const idealX = Math.round(centerX - (clampedWidth / 2))
+    const x = Math.max(workArea.x, Math.min(idealX, maxX))
+    const maxY = workArea.y + workArea.height - bounds.height
+    const y = Math.max(workArea.y, Math.min(bounds.y, maxY))
 
     mainWin.setBounds({
       x,
       y,
       width: clampedWidth,
       height: bounds.height,
-    }, true)
+    }, false)
     return { success: true }
   })
 
-  ipcMain.handle('set-hud-overlay-height', (_, height: number) => {
+  ipcMain.handle('get-hud-overlay-popover-side', () => {
+    const mainWin = getMainWindow()
+    if (!mainWin || mainWin.isDestroyed()) {
+      return { success: false as const }
+    }
+
+    const bounds = mainWin.getBounds()
+    const display = screen.getDisplayMatching(bounds)
+    const workArea = display.workArea
+    const hudCenterY = bounds.y + (bounds.height / 2)
+    const screenCenterY = workArea.y + (workArea.height / 2)
+    const side = hudCenterY >= screenCenterY ? 'top' : 'bottom'
+
+    return { success: true as const, side }
+  })
+
+  ipcMain.handle('set-hud-overlay-height', (_, height: number, anchor: 'top' | 'bottom' = 'bottom') => {
     const mainWin = getMainWindow()
     if (!mainWin || mainWin.isDestroyed()) {
       return { success: false }
     }
 
-    const clampedHeight = Math.max(100, Math.min(420, Math.round(height)))
+    const clampedHeight = Math.max(100, Math.min(720, Math.round(height)))
     const bounds = mainWin.getBounds()
     const display = screen.getDisplayMatching(bounds)
     const workArea = display.workArea
-    const x = Math.floor(workArea.x + (workArea.width - bounds.width) / 2)
-    const y = Math.floor(workArea.y + workArea.height - clampedHeight - 5)
+    const maxX = workArea.x + workArea.width - bounds.width
+    const maxY = workArea.y + workArea.height - clampedHeight
+    const x = Math.max(workArea.x, Math.min(bounds.x, maxX))
+    const idealY = anchor === 'top' ? bounds.y : bounds.y + bounds.height - clampedHeight
+    const y = Math.max(workArea.y, Math.min(idealY, maxY))
 
     mainWin.setBounds({
       x,
       y,
       width: bounds.width,
       height: clampedHeight,
-    }, true)
+    }, false)
     return { success: true }
   })
 
@@ -346,6 +679,9 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle('set-recording-state', (_, recording: boolean) => {
+    if (recording) {
+      closeHudPopoverWindows()
+    }
     const source = selectedSource || { name: 'Screen' }
     if (onRecordingStateChange) {
       onRecordingStateChange(recording, source.name)
@@ -413,6 +749,71 @@ export function registerIpcHandlers(
         message: 'Failed to save exported video',
         error: String(error)
       }
+    }
+  })
+
+  ipcMain.handle('get-default-export-directory', async () => {
+    try {
+      await ensureDirectoryExists(DEFAULT_EXPORTS_DIR)
+      return { success: true, path: DEFAULT_EXPORTS_DIR }
+    } catch (error) {
+      console.error('Failed to resolve default export directory:', error)
+      return { success: false, message: 'Failed to resolve default export directory', error: String(error) }
+    }
+  })
+
+  ipcMain.handle('choose-export-directory', async (_, currentPath?: string) => {
+    try {
+      const result = await dialog.showOpenDialog({
+        title: 'Choose Export Folder',
+        defaultPath: currentPath || DEFAULT_EXPORTS_DIR,
+        properties: ['openDirectory', 'createDirectory'],
+      })
+
+      if (result.canceled || result.filePaths.length === 0) {
+        return { success: false, cancelled: true, message: 'Folder selection cancelled' }
+      }
+
+      const selectedPath = result.filePaths[0]
+      await ensureDirectoryExists(selectedPath)
+      return { success: true, path: selectedPath }
+    } catch (error) {
+      console.error('Failed to choose export directory:', error)
+      return { success: false, message: 'Failed to choose export directory', error: String(error) }
+    }
+  })
+
+  ipcMain.handle('save-exported-video-to-directory', async (_, videoData: ArrayBuffer, fileName: string, directoryPath: string) => {
+    try {
+      await ensureDirectoryExists(directoryPath)
+      const targetPath = await getUniqueFilePath(directoryPath, fileName)
+      await fs.writeFile(targetPath, Buffer.from(videoData))
+      return {
+        success: true,
+        path: targetPath,
+        message: 'Video exported successfully',
+      }
+    } catch (error) {
+      console.error('Failed to save exported video to directory:', error)
+      return {
+        success: false,
+        message: 'Failed to save exported video',
+        error: String(error),
+      }
+    }
+  })
+
+  ipcMain.handle('open-directory', async (_, directoryPath: string) => {
+    try {
+      await ensureDirectoryExists(directoryPath)
+      const errorMessage = await shell.openPath(directoryPath)
+      if (errorMessage) {
+        return { success: false, message: errorMessage }
+      }
+      return { success: true }
+    } catch (error) {
+      console.error('Failed to open directory:', error)
+      return { success: false, message: 'Failed to open directory', error: String(error) }
     }
   })
 

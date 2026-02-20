@@ -77,6 +77,13 @@ export class StreamingVideoDecoder {
     const segments = this.computeSegments(this.metadata.duration, trimRegions);
     const frameDurationUs = 1_000_000 / targetFrameRate;
 
+    // Fast path: no trims means one contiguous segment. Stream frames immediately
+    // instead of buffering the entire source before emitting output frames.
+    if (!trimRegions || trimRegions.length === 0) {
+      await this.decodeUntrimmed(decoderConfig, frameDurationUs, onFrame);
+      return;
+    }
+
     // Async frame queue — decoder pushes, consumer pulls
     const pendingFrames: VideoFrame[] = [];
     let frameResolve: ((frame: VideoFrame | null) => void) | null = null;
@@ -210,6 +217,132 @@ export class StreamingVideoDecoder {
       this.decoder.close();
     }
     this.decoder = null;
+  }
+
+  private async decodeUntrimmed(
+    decoderConfig: VideoDecoderConfig,
+    frameDurationUs: number,
+    onFrame: OnFrameCallback
+  ): Promise<void> {
+    if (!this.demuxer || !this.metadata) {
+      throw new Error('Must call loadMetadata() before decodeUntrimmed()');
+    }
+
+    const durationUs = Math.max(0, Math.round(this.metadata.duration * 1_000_000));
+    let nextEmitUs = 0;
+    let exportFrameIndex = 0;
+    let lastFrame: VideoFrame | null = null;
+    let lastFrameTimestampUs = 0;
+
+    const emitFrom = async (sourceFrame: VideoFrame, sourceTimestampUs: number) => {
+      const clone = new VideoFrame(sourceFrame, { timestamp: sourceTimestampUs });
+      await onFrame(clone, exportFrameIndex * frameDurationUs, sourceTimestampUs / 1000);
+      exportFrameIndex++;
+    };
+
+    const pendingFrames: VideoFrame[] = [];
+    let frameResolve: ((frame: VideoFrame | null) => void) | null = null;
+    let decodeError: Error | null = null;
+    let decodeDone = false;
+
+    this.decoder = new VideoDecoder({
+      output: (frame: VideoFrame) => {
+        if (frameResolve) {
+          const resolve = frameResolve;
+          frameResolve = null;
+          resolve(frame);
+        } else {
+          pendingFrames.push(frame);
+        }
+      },
+      error: (e: DOMException) => {
+        decodeError = new Error(`VideoDecoder error: ${e.message}`);
+        if (frameResolve) {
+          const resolve = frameResolve;
+          frameResolve = null;
+          resolve(null);
+        }
+      },
+    });
+    this.decoder.configure(decoderConfig);
+
+    const getNextFrame = (): Promise<VideoFrame | null> => {
+      if (decodeError) throw decodeError;
+      if (pendingFrames.length > 0) return Promise.resolve(pendingFrames.shift()!);
+      if (decodeDone) return Promise.resolve(null);
+      return new Promise(resolve => { frameResolve = resolve; });
+    };
+
+    const reader = this.demuxer.read('video').getReader();
+    const feedPromise = (async () => {
+      try {
+        while (!this.cancelled) {
+          const { done, value: chunk } = await reader.read();
+          if (done || !chunk) break;
+          while (this.decoder!.decodeQueueSize > 10 && !this.cancelled) {
+            await new Promise(resolve => setTimeout(resolve, 1));
+          }
+          if (this.cancelled) break;
+          this.decoder!.decode(chunk);
+        }
+        if (!this.cancelled && this.decoder!.state === 'configured') {
+          await this.decoder!.flush();
+        }
+      } catch (e) {
+        decodeError = e instanceof Error ? e : new Error(String(e));
+      } finally {
+        decodeDone = true;
+        if (frameResolve) {
+          const resolve = frameResolve;
+          frameResolve = null;
+          resolve(null);
+        }
+      }
+    })();
+
+    try {
+      while (!this.cancelled) {
+        const frame = await getNextFrame();
+        if (!frame) break;
+
+        const sourceTimestampUs = frame.timestamp;
+        while (!this.cancelled && nextEmitUs <= sourceTimestampUs && nextEmitUs < durationUs) {
+          await emitFrom(frame, sourceTimestampUs);
+          nextEmitUs += frameDurationUs;
+        }
+
+        if (lastFrame) {
+          lastFrame.close();
+        }
+        lastFrame = new VideoFrame(frame, { timestamp: sourceTimestampUs });
+        lastFrameTimestampUs = sourceTimestampUs;
+        frame.close();
+      }
+
+      while (!this.cancelled && lastFrame && nextEmitUs < durationUs) {
+        await emitFrom(lastFrame, lastFrameTimestampUs);
+        nextEmitUs += frameDurationUs;
+      }
+
+      while (!decodeDone) {
+        const frame = await getNextFrame();
+        if (!frame) break;
+        frame.close();
+      }
+      await feedPromise;
+      for (const frame of pendingFrames) frame.close();
+      pendingFrames.length = 0;
+    } finally {
+      try { reader.cancel(); } catch { /* ignore */ }
+      if (lastFrame) {
+        lastFrame.close();
+        lastFrame = null;
+      }
+      if (this.decoder?.state === 'configured') {
+        this.decoder.close();
+      }
+      this.decoder = null;
+    }
   }
 
   /**

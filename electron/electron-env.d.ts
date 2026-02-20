@@ -38,7 +38,54 @@ interface Window {
     openCameraPreviewWindow: (deviceId?: string) => Promise<{ success: boolean }>
     closeCameraPreviewWindow: () => Promise<{ success: boolean }>
     setHudOverlayWidth: (width: number) => Promise<{ success: boolean }>
-    setHudOverlayHeight: (height: number) => Promise<{ success: boolean }>
+    setHudOverlayHeight: (height: number, anchor?: 'top' | 'bottom') => Promise<{ success: boolean }>
+    getHudOverlayPopoverSide: () => Promise<{ success: boolean; side?: 'top' | 'bottom' }>
+    getHudSettings: () => Promise<{
+      success: boolean
+      settings: {
+        micEnabled: boolean
+        selectedMicDeviceId: string
+        micProcessingMode: 'raw' | 'cleaned'
+        cameraEnabled: boolean
+        cameraPreviewEnabled: boolean
+        selectedCameraDeviceId: string
+        recordingPreset: 'performance' | 'balanced' | 'quality'
+        recordingFps: 60 | 120
+      }
+    }>
+    preloadHudPopoverWindows: () => Promise<{ success: boolean; message?: string }>
+    updateHudSettings: (partial: {
+      micEnabled?: boolean
+      selectedMicDeviceId?: string
+      micProcessingMode?: 'raw' | 'cleaned'
+      cameraEnabled?: boolean
+      cameraPreviewEnabled?: boolean
+      selectedCameraDeviceId?: string
+      recordingPreset?: 'performance' | 'balanced' | 'quality'
+      recordingFps?: 60 | 120
+    }) => Promise<{ success: boolean }>
+    openHudPopoverWindow: (payload: {
+      kind: 'recording' | 'media'
+      anchorRect: { x: number; y: number; width: number; height: number }
+      side: 'top' | 'bottom'
+    }) => Promise<{ success: boolean; message?: string }>
+    toggleHudPopoverWindow: (payload: {
+      kind: 'recording' | 'media'
+      anchorRect: { x: number; y: number; width: number; height: number }
+      side: 'top' | 'bottom'
+    }) => Promise<{ success: boolean; opened?: boolean; message?: string }>
+    closeHudPopoverWindow: (kind?: 'recording' | 'media') => Promise<{ success: boolean }>
+    closeCurrentHudPopoverWindow: () => Promise<{ success: boolean }>
+    onHudSettingsUpdated: (callback: (settings: {
+      micEnabled: boolean
+      selectedMicDeviceId: string
+      micProcessingMode: 'raw' | 'cleaned'
+      cameraEnabled: boolean
+      cameraPreviewEnabled: boolean
+      selectedCameraDeviceId: string
+      recordingPreset: 'performance' | 'balanced' | 'quality'
+      recordingFps: 60 | 120
+    }) => void) => () => void
     selectSource: (source: ProcessedDesktopSource) => Promise<ProcessedDesktopSource>
     getSelectedSource: () => Promise<ProcessedDesktopSource | null>
     storeRecordedVideo: (videoData: ArrayBuffer, fileName: string) => Promise<{ success: boolean; path?: string; message?: string }>
@@ -58,6 +105,10 @@ interface Window {
     onStopRecordingFromTray: (callback: () => void) => () => void
     openExternalUrl: (url: string) => Promise<{ success: boolean; error?: string }>
     saveExportedVideo: (videoData: ArrayBuffer, fileName: string) => Promise<{ success: boolean; path?: string; message?: string; cancelled?: boolean }>
+    getDefaultExportDirectory: () => Promise<{ success: boolean; path?: string; message?: string; error?: string }>
+    chooseExportDirectory: (currentPath?: string) => Promise<{ success: boolean; cancelled?: boolean; path?: string; message?: string; error?: string }>
+    saveExportedVideoToDirectory: (videoData: ArrayBuffer, fileName: string, directoryPath: string) => Promise<{ success: boolean; path?: string; message?: string; error?: string }>
+    openDirectory: (directoryPath: string) => Promise<{ success: boolean; message?: string; error?: string }>
     openVideoFilePicker: () => Promise<{ success: boolean; path?: string; cancelled?: boolean }>
     setCurrentVideoPath: (path: string) => Promise<{ success: boolean }>
     getCurrentVideoPath: () => Promise<{ success: boolean; path?: string }>

@@ -31,8 +31,37 @@ electron.contextBridge.exposeInMainWorld("electronAPI", {
   setHudOverlayWidth: (width) => {
     return electron.ipcRenderer.invoke("set-hud-overlay-width", width);
   },
-  setHudOverlayHeight: (height) => {
-    return electron.ipcRenderer.invoke("set-hud-overlay-height", height);
+  setHudOverlayHeight: (height, anchor) => {
+    return electron.ipcRenderer.invoke("set-hud-overlay-height", height, anchor);
+  },
+  getHudOverlayPopoverSide: () => {
+    return electron.ipcRenderer.invoke("get-hud-overlay-popover-side");
+  },
+  getHudSettings: () => {
+    return electron.ipcRenderer.invoke("get-hud-settings");
+  },
+  preloadHudPopoverWindows: () => {
+    return electron.ipcRenderer.invoke("preload-hud-popover-windows");
+  },
+  updateHudSettings: (partial) => {
+    return electron.ipcRenderer.invoke("update-hud-settings", partial);
+  },
+  openHudPopoverWindow: (payload) => {
+    return electron.ipcRenderer.invoke("open-hud-popover-window", payload);
+  },
+  toggleHudPopoverWindow: (payload) => {
+    return electron.ipcRenderer.invoke("toggle-hud-popover-window", payload);
+  },
+  closeHudPopoverWindow: (kind) => {
+    return electron.ipcRenderer.invoke("close-hud-popover-window", kind);
+  },
+  closeCurrentHudPopoverWindow: () => {
+    return electron.ipcRenderer.invoke("close-current-hud-popover-window");
+  },
+  onHudSettingsUpdated: (callback) => {
+    const listener = (_event, settings) => callback(settings);
+    electron.ipcRenderer.on("hud-settings-updated", listener);
+    return () => electron.ipcRenderer.removeListener("hud-settings-updated", listener);
   },
   selectSource: (source) => {
     return electron.ipcRenderer.invoke("select-source", source);
@@ -68,6 +97,18 @@ electron.contextBridge.exposeInMainWorld("electronAPI", {
   },
   saveExportedVideo: (videoData, fileName) => {
     return electron.ipcRenderer.invoke("save-exported-video", videoData, fileName);
+  },
+  getDefaultExportDirectory: () => {
+    return electron.ipcRenderer.invoke("get-default-export-directory");
+  },
+  chooseExportDirectory: (currentPath) => {
+    return electron.ipcRenderer.invoke("choose-export-directory", currentPath);
+  },
+  saveExportedVideoToDirectory: (videoData, fileName, directoryPath) => {
+    return electron.ipcRenderer.invoke("save-exported-video-to-directory", videoData, fileName, directoryPath);
+  },
+  openDirectory: (directoryPath) => {
+    return electron.ipcRenderer.invoke("open-directory", directoryPath);
   },
   openVideoFilePicker: () => {
     return electron.ipcRenderer.invoke("open-video-file-picker");

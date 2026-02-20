@@ -52,28 +52,44 @@ export function ExportDialog({
   if (!isOpen) return null;
 
   const formatLabel = exportFormat === 'gif' ? 'GIF' : 'Video';
+  const phase = progress?.phase ?? 'extracting';
   
   // Determine if we're in the compiling phase (frames done but still exporting)
-  const isCompiling = isExporting && progress && progress.percentage >= 100 && exportFormat === 'gif';
-  const isFinalizing = progress?.phase === 'finalizing';
+  const isInitializing = phase === 'initializing';
+  const isFinalizing = phase === 'finalizing';
   const renderProgress = progress?.renderProgress;
+  const hasEta = Boolean(progress && progress.estimatedTimeRemaining > 0 && !isFinalizing);
+
+  const formatEta = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.max(0, seconds % 60);
+    return `${mins}:${String(secs).padStart(2, '0')}`;
+  };
   
   // Get status message based on phase
   const getStatusMessage = () => {
     if (error) return 'Please try again';
-    if (isCompiling || isFinalizing) {
-      if (renderProgress !== undefined && renderProgress > 0) {
-        return `Compiling GIF... ${renderProgress}%`;
+    if (isInitializing) return 'Initializing export pipeline...';
+    if (isFinalizing) {
+      if (exportFormat === 'gif') {
+        if (renderProgress !== undefined && renderProgress > 0) {
+          return `Compiling GIF... ${renderProgress}%`;
+        }
+        return 'Compiling GIF... This may take a while';
       }
-      return 'Compiling GIF... This may take a while';
+      return 'Finalizing video file...';
     }
-    return 'This may take a moment...';
+    if (hasEta && progress) {
+      return `Estimated time left: ${formatEta(progress.estimatedTimeRemaining)}`;
+    }
+    return 'Rendering frames...';
   };
 
   // Get title based on phase
   const getTitle = () => {
     if (error) return 'Export Failed';
-    if (isCompiling || isFinalizing) return 'Compiling GIF';
+    if (isInitializing) return `Preparing ${formatLabel}`;
+    if (isFinalizing) return exportFormat === 'gif' ? 'Compiling GIF' : 'Finalizing Video';
     return `Exporting ${formatLabel}`;
   };
 
@@ -145,9 +161,9 @@ export function ExportDialog({
           <div className="space-y-6">
             <div className="space-y-2">
               <div className="flex justify-between text-xs font-medium text-slate-400 uppercase tracking-wider">
-                <span>{isCompiling || isFinalizing ? 'Compiling' : 'Rendering Frames'}</span>
+                <span>{isInitializing ? 'Initializing' : isFinalizing ? (exportFormat === 'gif' ? 'Compiling' : 'Finalizing') : 'Rendering Frames'}</span>
                 <span className="font-mono text-slate-200">
-                  {isCompiling || isFinalizing ? (
+                  {isFinalizing ? (
                     renderProgress !== undefined && renderProgress > 0 ? (
                       `${renderProgress}%`
                     ) : (
@@ -162,7 +178,7 @@ export function ExportDialog({
                 </span>
               </div>
               <div className="h-2 bg-white/5 rounded-full overflow-hidden border border-white/5">
-                {isCompiling || isFinalizing ? (
+                {isFinalizing ? (
                   // Show render progress if available, otherwise animated indeterminate bar
                   renderProgress !== undefined && renderProgress > 0 ? (
                     <div
@@ -197,10 +213,10 @@ export function ExportDialog({
             <div className="grid grid-cols-2 gap-4">
               <div className="bg-white/5 rounded-xl p-3 border border-white/5">
                 <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">
-                  {isCompiling || isFinalizing ? 'Status' : 'Format'}
+                  {isFinalizing ? 'Status' : 'Format'}
                 </div>
                 <div className="text-slate-200 font-medium text-sm">
-                  {isCompiling || isFinalizing ? 'Compiling...' : formatLabel}
+                  {isInitializing ? 'Loading source...' : isFinalizing ? (exportFormat === 'gif' ? 'Compiling...' : 'Finalizing...') : formatLabel}
                 </div>
               </div>
               <div className="bg-white/5 rounded-xl p-3 border border-white/5">
@@ -208,6 +224,12 @@ export function ExportDialog({
                 <div className="text-slate-200 font-medium text-sm">
                   {progress.currentFrame} / {progress.totalFrames}
                 </div>
+              </div>
+            </div>
+            <div className="bg-white/5 rounded-xl p-3 border border-white/5">
+              <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">ETA</div>
+              <div className="text-slate-200 font-medium text-sm">
+                {hasEta && progress ? formatEta(progress.estimatedTimeRemaining) : (isInitializing ? 'Starting soon...' : isFinalizing ? 'Finalizing...' : 'Calculating...')}
               </div>
             </div>
 

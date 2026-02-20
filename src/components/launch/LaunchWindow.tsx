@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type RefObject } from "react";
 import styles from "./LaunchWindow.module.css";
 import { useScreenRecorder, type RecordingPreset, type RecordingFps } from "../../hooks/useScreenRecorder";
 import { Button } from "../ui/button";
@@ -8,8 +8,7 @@ import { MdMonitor } from "react-icons/md";
 import { RxDragHandleDots2 } from "react-icons/rx";
 import { FiMinus, FiX } from "react-icons/fi";
 import { ContentClamp } from "../ui/content-clamp";
-import { Mic, MicOff, Camera, CameraOff, Eye, EyeOff, EllipsisVertical } from "lucide-react";
-import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
+import { EllipsisVertical, Mic, MicOff, Camera, CameraOff, Settings } from "lucide-react";
 
 const RECORDING_PRESET_STORAGE_KEY = "openscreen.recordingPreset";
 const RECORDING_FPS_STORAGE_KEY = "openscreen.recordingFps";
@@ -21,18 +20,18 @@ export function LaunchWindow() {
   const [selectedSource, setSelectedSource] = useState("Screen");
   const [hasSelectedSource, setHasSelectedSource] = useState(false);
   const [micEnabled, setMicEnabled] = useState(true);
-  const [micDevices, setMicDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedMicDeviceId, setSelectedMicDeviceId] = useState<string>("");
   const [micProcessingMode, setMicProcessingMode] = useState<"raw" | "cleaned">("cleaned");
   const [micLevel, setMicLevel] = useState(0);
   const [cameraEnabled, setCameraEnabled] = useState(false);
   const [cameraPreviewEnabled, setCameraPreviewEnabled] = useState(true);
-  const [cameraDevices, setCameraDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedCameraDeviceId, setSelectedCameraDeviceId] = useState<string>("");
   const [recordingPreset, setRecordingPreset] = useState<RecordingPreset>("quality");
   const [recordingFps, setRecordingFps] = useState<RecordingFps>(60);
-  const [recordingSettingsOpen, setRecordingSettingsOpen] = useState(false);
+  const [popoverSide, setPopoverSide] = useState<"top" | "bottom">("top");
   const hudRef = useRef<HTMLDivElement | null>(null);
+  const recordingSettingsButtonRef = useRef<HTMLButtonElement | null>(null);
+  const mediaSettingsButtonRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     const storedPreset = localStorage.getItem(RECORDING_PRESET_STORAGE_KEY);
@@ -74,7 +73,6 @@ export function LaunchWindow() {
 
   useEffect(() => {
     const checkSelectedSource = async () => {
-      if (!window.electronAPI) return;
       const source = await window.electronAPI.getSelectedSource();
       if (source) {
         setSelectedSource(source.name);
@@ -91,51 +89,86 @@ export function LaunchWindow() {
   }, []);
 
   useEffect(() => {
-    const loadDevices = async () => {
-      try {
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        const microphones = devices.filter((d) => d.kind === "audioinput");
-        const cameras = devices.filter((d) => d.kind === "videoinput");
-        setMicDevices(microphones);
-        setCameraDevices(cameras);
-        if (!selectedMicDeviceId && microphones.length > 0) {
-          setSelectedMicDeviceId(microphones[0].deviceId);
-        }
-        if (!selectedCameraDeviceId && cameras.length > 0) {
-          setSelectedCameraDeviceId(cameras[0].deviceId);
-        }
-      } catch (error) {
-        console.error("Failed to enumerate camera devices:", error);
+    const syncWidth = () => {
+      const el = hudRef.current;
+      if (!el) return;
+      const measuredWidth = Math.ceil(el.scrollWidth + 2);
+      window.electronAPI.setHudOverlayWidth(measuredWidth).catch(() => {});
+      window.electronAPI.setHudOverlayHeight(120, "top").catch(() => {});
+    };
+    syncWidth();
+    const observer = new ResizeObserver(syncWidth);
+    if (hudRef.current) observer.observe(hudRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const syncPopoverSide = async () => {
+      const result = await window.electronAPI.getHudOverlayPopoverSide();
+      if (!cancelled && result?.success && (result.side === "top" || result.side === "bottom")) {
+        setPopoverSide(result.side);
       }
     };
-
-    loadDevices();
-    navigator.mediaDevices.addEventListener?.("devicechange", loadDevices);
+    syncPopoverSide().catch(() => {});
+    const interval = setInterval(() => {
+      syncPopoverSide().catch(() => {});
+    }, 300);
     return () => {
-      navigator.mediaDevices.removeEventListener?.("devicechange", loadDevices);
+      cancelled = true;
+      clearInterval(interval);
     };
-  }, [selectedCameraDeviceId, selectedMicDeviceId]);
+  }, []);
 
   useEffect(() => {
-    const el = hudRef.current;
-    if (!el) return;
-    const measuredWidth = Math.ceil(el.scrollWidth + 2);
-    window.electronAPI?.setHudOverlayWidth(measuredWidth).catch(() => {});
-  }, [cameraEnabled, micEnabled, selectedMicDeviceId, selectedCameraDeviceId, micProcessingMode, selectedSource, recording, recordingPreset, recordingFps]);
+    window.electronAPI.preloadHudPopoverWindows().catch(() => {});
+  }, []);
 
   useEffect(() => {
-    const targetHeight = recordingSettingsOpen ? 280 : 100;
-    window.electronAPI?.setHudOverlayHeight(targetHeight).catch(() => {});
-    return () => {
-      window.electronAPI?.setHudOverlayHeight(100).catch(() => {});
+    const applySettings = (settings: {
+      micEnabled: boolean;
+      selectedMicDeviceId: string;
+      micProcessingMode: "raw" | "cleaned";
+      cameraEnabled: boolean;
+      cameraPreviewEnabled: boolean;
+      selectedCameraDeviceId: string;
+      recordingPreset: RecordingPreset;
+      recordingFps: RecordingFps;
+    }) => {
+      setMicEnabled(settings.micEnabled);
+      setSelectedMicDeviceId(settings.selectedMicDeviceId);
+      setMicProcessingMode(settings.micProcessingMode);
+      setCameraEnabled(settings.cameraEnabled);
+      setCameraPreviewEnabled(settings.cameraPreviewEnabled);
+      setSelectedCameraDeviceId(settings.selectedCameraDeviceId);
+      setRecordingPreset(settings.recordingPreset);
+      setRecordingFps(settings.recordingFps);
     };
-  }, [recordingSettingsOpen]);
+
+    window.electronAPI.getHudSettings().then((result) => {
+      if (result.success) {
+        applySettings(result.settings);
+      }
+    }).catch(() => {});
+
+    const unsubscribe = window.electronAPI.onHudSettingsUpdated((settings) => {
+      applySettings(settings);
+    });
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
-    if (recording && recordingSettingsOpen) {
-      setRecordingSettingsOpen(false);
-    }
-  }, [recording, recordingSettingsOpen]);
+    window.electronAPI.updateHudSettings({
+      micEnabled,
+      selectedMicDeviceId,
+      micProcessingMode,
+      cameraEnabled,
+      cameraPreviewEnabled,
+      selectedCameraDeviceId,
+      recordingPreset,
+      recordingFps,
+    }).catch(() => {});
+  }, [micEnabled, selectedMicDeviceId, micProcessingMode, cameraEnabled, cameraPreviewEnabled, selectedCameraDeviceId, recordingPreset, recordingFps]);
 
   useEffect(() => {
     let stream: MediaStream | null = null;
@@ -186,17 +219,14 @@ export function LaunchWindow() {
           const rms = Math.sqrt(sum / data.length);
           const boosted = Math.min(1, rms * 2.5);
           setMicLevel((prev) => {
-            if (boosted >= prev) {
-              return boosted;
-            }
+            if (boosted >= prev) return boosted;
             return Math.max(0, prev - 0.08);
           });
           rafId = requestAnimationFrame(tick);
         };
 
         tick();
-      } catch (error) {
-        console.warn("Failed to start microphone level meter:", error);
+      } catch {
         setMicLevel(0);
       }
     };
@@ -209,35 +239,40 @@ export function LaunchWindow() {
       if (source) source.disconnect();
       if (analyser) analyser.disconnect();
       if (context) context.close().catch(() => {});
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-      }
+      if (stream) stream.getTracks().forEach(track => track.stop());
       setMicLevel(0);
     };
   }, [micEnabled, selectedMicDeviceId, recording]);
 
   useEffect(() => {
     if (cameraEnabled && cameraPreviewEnabled) {
-      window.electronAPI?.openCameraPreviewWindow(selectedCameraDeviceId || undefined).catch(() => {});
+      window.electronAPI.openCameraPreviewWindow(selectedCameraDeviceId || undefined).catch(() => {});
       return;
     }
-    window.electronAPI?.closeCameraPreviewWindow().catch(() => {});
+    window.electronAPI.closeCameraPreviewWindow().catch(() => {});
   }, [cameraEnabled, cameraPreviewEnabled, selectedCameraDeviceId]);
 
   useEffect(() => {
+    if (recording) {
+      window.electronAPI.closeHudPopoverWindow().catch(() => {});
+    }
+  }, [recording]);
+
+  useEffect(() => {
     return () => {
-      window.electronAPI?.closeCameraPreviewWindow().catch(() => {});
+      window.electronAPI.closeCameraPreviewWindow().catch(() => {});
+      window.electronAPI.closeHudPopoverWindow().catch(() => {});
     };
   }, []);
 
   const formatTime = (seconds: number) => {
-    const m = Math.floor(seconds / 60).toString().padStart(2, '0');
-    const s = (seconds % 60).toString().padStart(2, '0');
+    const m = Math.floor(seconds / 60).toString().padStart(2, "0");
+    const s = (seconds % 60).toString().padStart(2, "0");
     return `${m}:${s}`;
   };
 
   const openSourceSelector = () => {
-    window.electronAPI?.openSourceSelector();
+    window.electronAPI.openSourceSelector();
   };
 
   const openVideoFile = async () => {
@@ -249,41 +284,76 @@ export function LaunchWindow() {
     }
   };
 
+  const openHudPopover = (kind: "recording" | "media", buttonRef: RefObject<HTMLButtonElement | null>) => {
+    if (recording) return;
+    const button = buttonRef.current;
+    if (!button) return;
+    const rect = button.getBoundingClientRect();
+    window.electronAPI.toggleHudPopoverWindow({
+      kind,
+      side: popoverSide,
+      anchorRect: {
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+      },
+    }).catch(() => {});
+  };
+
   const sendHudOverlayHide = () => {
     setCameraPreviewEnabled(false);
-    window.electronAPI?.hudOverlayHide?.();
+    window.electronAPI.hudOverlayHide?.();
   };
 
   const sendHudOverlayClose = () => {
-    window.electronAPI?.hudOverlayClose?.();
+    window.electronAPI.hudOverlayClose?.();
   };
 
+  const hudAnchorClass = popoverSide === "top" ? "items-end pb-1" : "items-start pt-1";
+
   return (
-    <div className="w-full h-full flex items-center justify-center bg-transparent overflow-hidden">
+    <div className={`w-full h-full flex justify-center bg-transparent ${hudAnchorClass}`}>
       <div
         ref={hudRef}
         className={`flex items-center gap-2 px-3 py-2 ${styles.electronDrag}`}
         style={{
-          width: 'fit-content',
-          overflow: 'hidden',
+          width: "fit-content",
+          overflow: "hidden",
           borderRadius: 12,
-          background: 'linear-gradient(160deg, rgba(20,20,20,0.95) 0%, rgba(10,10,10,0.92) 100%)',
-          backdropFilter: 'blur(28px) saturate(130%)',
-          WebkitBackdropFilter: 'blur(28px) saturate(130%)',
-          boxShadow: 'none',
-          border: '1px solid rgba(255,255,255,0.1)',
+          background: "linear-gradient(160deg, rgba(20,20,20,0.95) 0%, rgba(10,10,10,0.92) 100%)",
+          backdropFilter: "blur(28px) saturate(130%)",
+          WebkitBackdropFilter: "blur(28px) saturate(130%)",
+          border: "1px solid rgba(255,255,255,0.1)",
           minHeight: 44,
         }}
       >
-        <div className={`flex items-center gap-1 ${styles.electronDrag}`}>
-          <RxDragHandleDots2 size={18} className="text-white/40" />
+        <div className={`flex items-center gap-1 order-1 ${styles.electronNoDrag}`}>
+          <button
+            type="button"
+            onClick={sendHudOverlayClose}
+            className="group w-3 h-3 rounded-full bg-[#ff5f57] border border-[#d64541]/70 flex items-center justify-center"
+            title="Close App"
+          >
+            <FiX size={8} className="text-black/70 opacity-0 group-hover:opacity-100 transition-opacity" />
+          </button>
+          <button
+            type="button"
+            onClick={sendHudOverlayHide}
+            className="group w-3 h-3 rounded-full bg-[#ffbd2e] border border-[#d7991b]/70 flex items-center justify-center"
+            title="Hide HUD"
+          >
+            <FiMinus size={8} className="text-black/70 opacity-0 group-hover:opacity-100 transition-opacity" />
+          </button>
         </div>
 
-        <div className={`flex items-center gap-1 px-1.5 py-1 rounded-md bg-white/[0.03] border border-white/[0.12] ${styles.electronNoDrag}`}>
+        <div className="order-2 w-px h-4 bg-white/15" />
+
+        <div className={`relative flex items-center gap-1 px-1.5 py-1 pr-9 rounded-md bg-white/[0.03] border border-white/[0.12] order-6 ${styles.electronNoDrag}`}>
           <Button
             variant="link"
             size="sm"
-            className="h-7 gap-1 text-white bg-transparent hover:bg-transparent px-1 text-left text-xs min-w-[156px] justify-start"
+            className="h-7 gap-1 text-white bg-transparent hover:bg-white/5 px-1 text-left text-xs min-w-[156px] justify-start no-underline hover:no-underline"
             onClick={openSourceSelector}
             disabled={recording}
           >
@@ -309,7 +379,7 @@ export function LaunchWindow() {
                 : openSourceSelector
             }
             disabled={!hasSelectedSource && !recording}
-            className="h-7 gap-1.5 text-white bg-white/[0.08] hover:bg-white/[0.14] border border-white/[0.2] px-2 text-center text-xs min-w-[90px] rounded-md"
+            className="h-7 gap-1.5 text-white bg-white/[0.08] hover:bg-white/[0.14] border border-white/[0.2] px-2 text-center text-xs min-w-[90px] rounded-md no-underline hover:no-underline"
           >
             {recording ? (
               <>
@@ -323,97 +393,22 @@ export function LaunchWindow() {
               </>
             )}
           </Button>
-          <Popover open={recordingSettingsOpen} onOpenChange={setRecordingSettingsOpen}>
-            <PopoverTrigger asChild>
-              <Button
-                variant="link"
-                size="sm"
-                disabled={recording}
-                className="h-7 w-7 min-w-7 p-0 text-white bg-white/[0.08] hover:bg-white/[0.14] border border-white/[0.2] rounded-md"
-                title="Recording settings"
-              >
-                <EllipsisVertical size={14} className={hasSelectedSource ? "text-white" : "text-white/70"} />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent align="end" side="bottom" className="w-[280px] p-3 bg-[#0f1012] border border-white/10 rounded-xl shadow-xl">
-              <div className="space-y-3">
-                <div>
-                  <div className="text-xs font-semibold text-slate-200">Recording Settings</div>
-                  <div className="text-[10px] text-slate-400">Configure capture quality and smoothness.</div>
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] uppercase tracking-wider text-slate-500">Preset</label>
-                  <div className="grid grid-cols-3 gap-1">
-                    <button
-                      type="button"
-                      onClick={() => setRecordingPreset("performance")}
-                      className={`h-7 rounded-md text-[10px] font-medium border ${
-                        recordingPreset === "performance"
-                          ? "bg-white text-black border-white"
-                          : "bg-white/5 text-slate-300 border-white/10 hover:bg-white/10"
-                      }`}
-                    >
-                      Performance
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setRecordingPreset("balanced")}
-                      className={`h-7 rounded-md text-[10px] font-medium border ${
-                        recordingPreset === "balanced"
-                          ? "bg-white text-black border-white"
-                          : "bg-white/5 text-slate-300 border-white/10 hover:bg-white/10"
-                      }`}
-                    >
-                      Balanced
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setRecordingPreset("quality")}
-                      className={`h-7 rounded-md text-[10px] font-medium border ${
-                        recordingPreset === "quality"
-                          ? "bg-white text-black border-white"
-                          : "bg-white/5 text-slate-300 border-white/10 hover:bg-white/10"
-                      }`}
-                    >
-                      Quality
-                    </button>
-                  </div>
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] uppercase tracking-wider text-slate-500">FPS</label>
-                  <div className="grid grid-cols-2 gap-1">
-                    <button
-                      type="button"
-                      onClick={() => setRecordingFps(60)}
-                      className={`h-7 rounded-md text-[10px] font-medium border ${
-                        recordingFps === 60
-                          ? "bg-white text-black border-white"
-                          : "bg-white/5 text-slate-300 border-white/10 hover:bg-white/10"
-                      }`}
-                    >
-                      60 FPS
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setRecordingFps(120)}
-                      className={`h-7 rounded-md text-[10px] font-medium border ${
-                        recordingFps === 120
-                          ? "bg-white text-black border-white"
-                          : "bg-white/5 text-slate-300 border-white/10 hover:bg-white/10"
-                      }`}
-                    >
-                      120 FPS
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </PopoverContent>
-          </Popover>
+          <Button
+            ref={recordingSettingsButtonRef}
+            variant="link"
+            size="sm"
+            onClick={() => openHudPopover("recording", recordingSettingsButtonRef)}
+            disabled={recording}
+            className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 min-w-6 p-0 text-white hover:bg-white/[0.14]"
+            title="Recording settings"
+          >
+            <Settings size={13} className={hasSelectedSource ? "text-white" : "text-white/70"} />
+          </Button>
         </div>
 
-        <div className="w-px h-5 bg-white/12" />
+        <div className="w-px h-5 bg-white/12 order-5" />
 
-        <div className={`flex items-center gap-1 px-1.5 py-1 rounded-md bg-white/[0.03] border border-white/[0.12] ${styles.electronNoDrag}`}>
+        <div className={`relative flex items-center gap-1 px-1.5 py-1 pr-8 rounded-md bg-white/[0.03] border border-white/[0.12] order-3 ${styles.electronNoDrag}`}>
           <Button
             variant="link"
             size="sm"
@@ -424,54 +419,19 @@ export function LaunchWindow() {
           >
             {micEnabled ? <Mic size={14} className="text-white/90" /> : <MicOff size={14} className="text-white/50" />}
           </Button>
-          {micEnabled && (
-            <>
-              <div
-                className="h-7 w-[6px] rounded-full border border-white/15 bg-black/30 p-[1px] overflow-hidden flex items-end"
-                title="Microphone level"
-              >
-                <div
-                  className="w-full rounded-full transition-[height] duration-50"
-                  style={{
-                    height: `${Math.round(micLevel * 100)}%`,
-                    background: micLevel > 0.85 ? "#ef4444" : micLevel > 0.55 ? "#f59e0b" : "#34B27B",
-                  }}
-                />
-              </div>
-              <select
-                className="w-[102px] h-7 text-[10px] bg-[#1c1c1c] text-white border border-white/20 rounded-md px-1.5 outline-none"
-                style={{ colorScheme: 'dark' }}
-                value={selectedMicDeviceId}
-                disabled={recording || micDevices.length === 0}
-                onChange={(e) => setSelectedMicDeviceId(e.target.value)}
-                title="Microphone device"
-              >
-                {micDevices.length === 0 ? (
-                  <option value="" className="bg-white text-black">No microphone</option>
-                ) : (
-                  micDevices.map((device, index) => (
-                    <option key={device.deviceId} value={device.deviceId} className="bg-white text-black">
-                      {device.label || `Microphone ${index + 1}`}
-                    </option>
-                  ))
-                )}
-              </select>
-              <select
-                className="w-[72px] h-7 text-[10px] bg-[#1c1c1c] text-white border border-white/20 rounded-md px-1.5 outline-none"
-                style={{ colorScheme: 'dark' }}
-                value={micProcessingMode}
-                disabled={recording}
-                onChange={(e) => setMicProcessingMode(e.target.value as "raw" | "cleaned")}
-                title="Microphone processing"
-              >
-                <option value="cleaned" className="bg-white text-black">Cleaned</option>
-                <option value="raw" className="bg-white text-black">Raw</option>
-              </select>
-            </>
-          )}
-        </div>
-
-        <div className={`flex items-center gap-1 px-1.5 py-1 rounded-md bg-white/[0.03] border border-white/[0.12] ${styles.electronNoDrag}`}>
+          <div
+            className="h-7 w-[8px] rounded-full border border-white/15 bg-black/30 p-[1px] overflow-hidden flex items-end"
+            title="Microphone level"
+          >
+            <div
+              className="w-full rounded-full transition-[height] duration-50"
+              style={{
+                height: `${Math.round(micLevel * 100)}%`,
+                background: micLevel > 0.85 ? "#ef4444" : micLevel > 0.55 ? "#f59e0b" : "#34B27B",
+              }}
+            />
+          </div>
+          <div className="h-4 w-px bg-white/15" />
           <Button
             variant="link"
             size="sm"
@@ -482,44 +442,22 @@ export function LaunchWindow() {
           >
             {cameraEnabled ? <Camera size={14} className="text-white/90" /> : <CameraOff size={14} className="text-white/50" />}
           </Button>
-
-          {cameraEnabled && (
-            <>
-              <select
-                className="w-[112px] h-7 text-[10px] bg-[#1c1c1c] text-white border border-white/20 rounded-md px-1.5 outline-none"
-                style={{ colorScheme: 'dark' }}
-                value={selectedCameraDeviceId}
-                disabled={recording || cameraDevices.length === 0}
-                onChange={(e) => setSelectedCameraDeviceId(e.target.value)}
-                title="Camera device"
-              >
-                {cameraDevices.length === 0 ? (
-                  <option value="" className="bg-white text-black">No camera</option>
-                ) : (
-                  cameraDevices.map((device, index) => (
-                    <option key={device.deviceId} value={device.deviceId} className="bg-white text-black">
-                      {device.label || `Camera ${index + 1}`}
-                    </option>
-                  ))
-                )}
-              </select>
-              <Button
-                  variant="link"
-                  size="sm"
-                  onClick={() => setCameraPreviewEnabled((prev) => !prev)}
-                  disabled={recording}
-                  title={cameraPreviewEnabled ? "Turn camera preview off" : "Turn camera preview on"}
-                  className={`h-7 px-2 gap-1 ${styles.toggleButton} ${cameraPreviewEnabled ? styles.toggleOn : styles.toggleOff}`}
-              >
-                {cameraPreviewEnabled ? <Eye size={13} className="text-white/90" /> : <EyeOff size={13} className="text-white/50" />}
-              </Button>
-            </>
-          )}
+          <Button
+            ref={mediaSettingsButtonRef}
+            variant="link"
+            size="sm"
+            onClick={() => openHudPopover("media", mediaSettingsButtonRef)}
+            disabled={recording}
+            className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 min-w-6 p-0 text-white hover:bg-white/[0.14]"
+            title="Microphone and camera settings"
+          >
+            <EllipsisVertical size={14} className="text-white/80" />
+          </Button>
         </div>
 
-        <div className="w-px h-5 bg-white/12" />
+        <div className="w-px h-5 bg-white/12 order-7" />
 
-        <div className={`flex items-center gap-1.5 ${styles.electronNoDrag}`}>
+        <div className={`flex items-center gap-1.5 order-8 ${styles.electronNoDrag}`}>
           <Button
             variant="link"
             size="sm"
@@ -530,25 +468,10 @@ export function LaunchWindow() {
           >
             <FaFolder size={13} className={`text-white/85 ${styles.hudActionIcon}`} />
           </Button>
-          <Button
-            variant="link"
-            size="icon"
-            className={`h-8 w-8 ${styles.hudOverlayButton} ${styles.hudActionButton}`}
-            title="Hide HUD"
-            onClick={sendHudOverlayHide}
-          >
-            <FiMinus size={16} className={styles.hudActionIcon} style={{ color: '#fff', opacity: 0.72 }} />
-          </Button>
+        </div>
 
-          <Button
-            variant="link"
-            size="icon"
-            className={`h-8 w-8 ${styles.hudOverlayButton} ${styles.hudActionButton} ${styles.hudActionDanger}`}
-            title="Close App"
-            onClick={sendHudOverlayClose}
-          >
-            <FiX size={16} className={styles.hudActionIcon} style={{ color: '#fff', opacity: 0.72 }} />
-          </Button>
+        <div className={`flex items-center gap-1 ml-2 order-10 ${styles.electronDrag}`}>
+          <RxDragHandleDots2 size={18} className="text-white/40 hover:cursor-grab active:cursor-grabbing" />
         </div>
       </div>
     </div>

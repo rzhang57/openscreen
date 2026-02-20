@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import Block from '@uiw/react-color-block';
-import { Trash2, Download, Crop, X, Bug, Upload, Star, Film, Image, Sparkles, Palette } from "lucide-react";
+import { Trash2, Download, Crop, X, Bug, Upload, Star, Film, Image, Sparkles, Palette, FolderOpen, FolderSearch } from "lucide-react";
 import { toast } from "sonner";
 import { getZoomScale, ZOOM_DEPTH_MAX, ZOOM_DEPTH_MIN, ZOOM_DEPTH_STEP, type ZoomDepth, type CropRegion, type AnnotationRegion, type AnnotationType } from "./types";
 import { CropControl } from "./CropControl";
@@ -86,6 +86,9 @@ interface SettingsPanelProps {
   gifSizePreset?: GifSizePreset;
   onGifSizePresetChange?: (preset: GifSizePreset) => void;
   gifOutputDimensions?: { width: number; height: number };
+  exportDirectory?: string;
+  onChooseExportDirectory?: () => void;
+  onOpenExportDirectory?: () => void;
   onExport?: () => void;
   selectedAnnotationId?: string | null;
   annotationRegions?: AnnotationRegion[];
@@ -137,6 +140,9 @@ export function SettingsPanel({
   gifSizePreset = 'medium',
   onGifSizePresetChange,
   gifOutputDimensions = { width: 1280, height: 720 },
+  exportDirectory,
+  onChooseExportDirectory,
+  onOpenExportDirectory,
   onExport,
   selectedAnnotationId,
   annotationRegions = [],
@@ -683,6 +689,31 @@ export function SettingsPanel({
             </div>
           </div>
         )}
+
+        <div className="mb-3 space-y-2">
+          <div className="text-[10px] uppercase tracking-wider text-slate-500">Export Folder</div>
+          <div className="rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-[10px] text-slate-300 truncate" title={exportDirectory || "Not set"}>
+            {exportDirectory || "Not set"}
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={onChooseExportDirectory}
+              className="h-8 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-[10px] text-slate-200 flex items-center justify-center gap-1.5"
+            >
+              <FolderOpen className="w-3.5 h-3.5" />
+              Set Folder
+            </button>
+            <button
+              type="button"
+              onClick={onOpenExportDirectory}
+              className="h-8 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-[10px] text-slate-200 flex items-center justify-center gap-1.5"
+            >
+              <FolderSearch className="w-3.5 h-3.5" />
+              Open Folder
+            </button>
+          </div>
+        </div>
         
         <Button
           type="button"
