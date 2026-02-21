@@ -102,7 +102,6 @@ export class FrameRenderer {
     // Try to set colorSpace if supported (may not be available on all platforms)
     try {
       if (canvas && 'colorSpace' in canvas) {
-        // @ts-expect-error - colorSpace not in TypeScript definitions but works at runtime
         canvas.colorSpace = 'srgb';
       }
     } catch (error) {
@@ -402,6 +401,7 @@ export class FrameRenderer {
     }
     
     // Apply transform once with maximum motion intensity from all ticks
+    if (!this.layoutCache) return;
     applyZoomTransform({
       cameraContainer: this.cameraContainer,
       blurFilter: this.blurFilter,
@@ -507,7 +507,7 @@ export class FrameRenderer {
 
   private clampFocusToStage(focus: { cx: number; cy: number }, depth: number): { cx: number; cy: number } {
     if (!this.layoutCache) return focus;
-    return clampFocusToStageUtil(focus, depth, this.layoutCache);
+    return clampFocusToStageUtil(focus, depth, this.layoutCache.stageSize);
   }
 
   private updateAnimationState(timeMs: number): number {

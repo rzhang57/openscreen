@@ -433,7 +433,7 @@ export function registerIpcHandlers(
       selectedSourceId: selectedSource?.id,
       selectedSourceDisplayId: selectedSource?.display_id,
     })
-    const result = inputTrackingService.start(payload, selectedSource)
+    const result = inputTrackingService.start(payload, selectedSource ?? undefined)
     if (result.success) {
       console.info('[auto-zoom][main] Input tracking started', {
         sessionId: payload.sessionId,
@@ -969,7 +969,7 @@ export function registerIpcHandlers(
     }
     const source = selectedSource || { name: 'Screen' }
     if (onRecordingStateChange) {
-      onRecordingStateChange(recording, source.name)
+      onRecordingStateChange(recording, source.name ?? 'Screen')
     }
   })
 
