@@ -175,22 +175,23 @@ export class FrameRenderer {
 
     const video = document.createElement('video');
     video.src = this.config.cameraVideoUrl;
-    video.preload = 'metadata';
+    video.preload = 'auto';
     video.muted = true;
     video.playsInline = true;
+    video.load();
 
     await new Promise<void>((resolve, reject) => {
       const onLoaded = () => {
-        video.removeEventListener('loadedmetadata', onLoaded);
+        video.removeEventListener('loadeddata', onLoaded);
         video.removeEventListener('error', onError);
         resolve();
       };
       const onError = () => {
-        video.removeEventListener('loadedmetadata', onLoaded);
+        video.removeEventListener('loadeddata', onLoaded);
         video.removeEventListener('error', onError);
         reject(new Error('Failed to load camera video'));
       };
-      video.addEventListener('loadedmetadata', onLoaded);
+      video.addEventListener('loadeddata', onLoaded);
       video.addEventListener('error', onError);
     });
 
@@ -218,7 +219,7 @@ export class FrameRenderer {
     }
 
     const cameraTimeSec = cameraTimeMs / 1000;
-    if (cameraTimeSec > this.cameraElement.duration) {
+    if (cameraTimeSec >= this.cameraElement.duration) {
       return false;
     }
 
@@ -237,7 +238,9 @@ export class FrameRenderer {
       this.cameraElement!.currentTime = Math.max(0, cameraTimeSec);
     });
 
-    return true;
+    return this.cameraElement.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+      && this.cameraElement.videoWidth > 0
+      && this.cameraElement.videoHeight > 0;
   }
 
   private async setupBackground(): Promise<void> {

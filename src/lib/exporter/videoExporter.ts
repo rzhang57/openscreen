@@ -229,10 +229,21 @@ export class VideoExporter {
       );
 
       if (this.hasSourceAudio) {
+        const audioDecoderConfig = await this.streamingDecoder.getAudioDecoderConfig();
+        if (!audioDecoderConfig) {
+          throw new Error('Unable to read audio decoder config from source media');
+        }
+        let audioChunkCount = 0;
         await this.streamingDecoder.copyAudio(
           this.config.trimRegions,
           async (audioChunk) => {
-            await this.muxer!.addAudioChunk(audioChunk);
+            if (audioChunkCount === 0) {
+              const metadata: EncodedAudioChunkMetadata = { decoderConfig: audioDecoderConfig };
+              await this.muxer!.addAudioChunk(audioChunk, metadata);
+            } else {
+              await this.muxer!.addAudioChunk(audioChunk);
+            }
+            audioChunkCount++;
           }
         );
       }

@@ -302,6 +302,15 @@ export class StreamingVideoDecoder {
     }
   }
 
+  async getAudioDecoderConfig(): Promise<AudioDecoderConfig | null> {
+    if (!this.demuxer || !this.metadata || !this.metadata.hasAudio) {
+      return null;
+    }
+
+    const decoderConfig = await this.demuxer.getDecoderConfig('audio');
+    return decoderConfig as AudioDecoderConfig;
+  }
+
   private async decodeUntrimmed(
     decoderConfig: VideoDecoderConfig,
     frameDurationUs: number,
