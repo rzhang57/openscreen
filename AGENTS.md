@@ -1,10 +1,10 @@
 # Repository Guidelines
 
 ## Project overview
-Openscreen is a screen recording software built for beautiful software product demo videos
+Velocity is a screen recording software built for beautiful software product demo videos
 
 ## Project Structure & Module Organization
-OpenScreen is a Vite + React + TypeScript renderer with an Electron main process.
+Velocity is a Vite + React + TypeScript renderer with an Electron main process.
 - `src/`: renderer app code.
 - `src/components/`: UI and feature components (`launch/`, `video-editor/`, `ui/`).
 - `src/lib/`: export pipeline and shared library code (`exporter/`, helpers).

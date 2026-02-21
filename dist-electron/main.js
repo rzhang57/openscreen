@@ -1,7 +1,7 @@
 var Se = Object.defineProperty;
 var Ee = (i, t, o) => t in i ? Se(i, t, { enumerable: !0, configurable: !0, writable: !0, value: o }) : i[t] = o;
 var S = (i, t, o) => Ee(i, typeof t != "symbol" ? t + "" : t, o);
-import { ipcMain as m, screen as N, BrowserWindow as L, app as D, desktopCapturer as ve, shell as me, dialog as ie, nativeImage as Te, session as _e, Tray as Ce, Menu as Ae } from "electron";
+import { ipcMain as p, screen as N, BrowserWindow as L, app as D, desktopCapturer as ve, shell as pe, dialog as ie, nativeImage as Te, session as _e, Tray as Ce, Menu as Ae } from "electron";
 import { fileURLToPath as de } from "node:url";
 import d from "node:path";
 import k from "node:fs/promises";
@@ -10,11 +10,11 @@ import { spawnSync as Re, spawn as be } from "node:child_process";
 import { createRequire as Ne } from "node:module";
 const ee = d.dirname(de(import.meta.url)), je = d.join(ee, ".."), U = process.env.VITE_DEV_SERVER_URL, re = d.join(je, "dist");
 let G = null, I = null;
-m.on("hud-overlay-hide", () => {
+p.on("hud-overlay-hide", () => {
   G && !G.isDestroyed() && G.minimize(), I && !I.isDestroyed() && I.minimize();
 });
 function xe() {
-  const i = N.getPrimaryDisplay(), { workArea: t } = i, o = 500, c = 120, l = Math.floor(t.x + (t.width - o) / 2), a = Math.floor(t.y + t.height - c - 5), p = new L({
+  const i = N.getPrimaryDisplay(), { workArea: t } = i, o = 500, c = 120, l = Math.floor(t.x + (t.width - o) / 2), a = Math.floor(t.y + t.height - c - 5), f = new L({
     width: o,
     height: c,
     minWidth: 500,
@@ -37,15 +37,15 @@ function xe() {
       backgroundThrottling: !1
     }
   });
-  return p.setContentProtection(!0), p.webContents.on("did-finish-load", () => {
-    p == null || p.webContents.send("main-process-message", (/* @__PURE__ */ new Date()).toLocaleString());
-  }), G = p, p.on("closed", () => {
-    G === p && (G = null);
-  }), p.on("minimize", () => {
+  return f.setContentProtection(!0), f.webContents.on("did-finish-load", () => {
+    f == null || f.webContents.send("main-process-message", (/* @__PURE__ */ new Date()).toLocaleString());
+  }), G = f, f.on("closed", () => {
+    G === f && (G = null);
+  }), f.on("minimize", () => {
     I && !I.isDestroyed() && I.minimize();
-  }), U ? p.loadURL(U + "?windowType=hud-overlay") : p.loadFile(d.join(re, "index.html"), {
+  }), U ? f.loadURL(U + "?windowType=hud-overlay") : f.loadFile(d.join(re, "index.html"), {
     query: { windowType: "hud-overlay" }
-  }), p;
+  }), f;
 }
 function We() {
   const i = process.platform === "darwin", t = new L({
@@ -104,13 +104,13 @@ function Ve() {
 function Oe(i) {
   if (I && !I.isDestroyed())
     return I.focus(), I;
-  const t = N.getPrimaryDisplay(), { workArea: o } = t, c = 320, l = 200, a = Math.floor(o.x + o.width - c - 24), p = Math.floor(o.y + o.height - l - 140), w = new L({
+  const t = N.getPrimaryDisplay(), { workArea: o } = t, c = 320, l = 200, a = Math.floor(o.x + o.width - c - 24), f = Math.floor(o.y + o.height - l - 140), w = new L({
     width: c,
     height: l,
     minWidth: 220,
     minHeight: 140,
     x: a,
-    y: p,
+    y: f,
     frame: !1,
     thickFrame: !1,
     transparent: !0,
@@ -222,10 +222,10 @@ function Be(i) {
 function $e(i, t) {
   if (i !== "screen")
     return;
-  const l = N.getAllDisplays().find((j) => String(j.id) === t) ?? N.getPrimaryDisplay(), { x: a, y: p, width: w, height: h } = l.bounds, x = (j) => {
+  const l = N.getAllDisplays().find((j) => String(j.id) === t) ?? N.getPrimaryDisplay(), { x: a, y: f, width: w, height: h } = l.bounds, x = (j) => {
     const z = N.dipToScreenPoint;
     return typeof z == "function" ? z(j) : j;
-  }, F = x({ x: a, y: p }), A = x({ x: a + w, y: p + h }), H = Math.max(1, A.x - F.x), B = Math.max(1, A.y - F.y);
+  }, F = x({ x: a, y: f }), A = x({ x: a + w, y: f + h }), H = Math.max(1, A.x - F.x), B = Math.max(1, A.y - F.y);
   return {
     x: F.x,
     y: F.y,
@@ -253,14 +253,14 @@ class qe {
   }
   start(t, o) {
     this.stop();
-    const c = t.sourceId ?? (o == null ? void 0 : o.id), l = t.sourceDisplayId ?? (o == null ? void 0 : o.display_id), a = Be(c), p = $e(a, l);
+    const c = t.sourceId ?? (o == null ? void 0 : o.id), l = t.sourceDisplayId ?? (o == null ? void 0 : o.display_id), a = Be(c), f = $e(a, l);
     this.currentSession = {
       sessionId: t.sessionId,
       startedAtMs: t.startedAtMs,
       sourceKind: a,
       sourceId: c,
       sourceDisplayId: l,
-      sourceBounds: p
+      sourceBounds: f
     }, this.events = [], this.stats = te(), this.lastMoveTs = 0, this.lastMoveX = -1, this.lastMoveY = -1;
     const w = this.provider.start({
       onMouseDown: (h) => {
@@ -365,7 +365,7 @@ class Xe {
     }
   }
   async stop(t) {
-    var o, c, l, a, p, w;
+    var o, c, l, a, f, w;
     if (this.status !== "recording" && this.status !== "starting")
       return { success: !1, message: "Native capture is not active" };
     if (!this.process)
@@ -387,7 +387,7 @@ class Xe {
         durationMs: Q((c = h.payload) == null ? void 0 : c.durationMs),
         width: Q((l = h.payload) == null ? void 0 : l.width),
         height: Q((a = h.payload) == null ? void 0 : a.height),
-        fpsActual: Q((p = h.payload) == null ? void 0 : p.fpsActual),
+        fpsActual: Q((f = h.payload) == null ? void 0 : f.fpsActual),
         bytes: Q((w = h.payload) == null ? void 0 : w.bytes) ?? (F == null ? void 0 : F.size)
       };
       return this.status = "idle", this.statusMessage = "", this.currentSessionId = null, this.startedAtMs = null, { success: !0, result: A };
@@ -484,8 +484,8 @@ ${l.stderr || ""}`;
     }), o.stderr.setEncoding("utf8"), o.stderr.on("data", () => {
     }), o.on("exit", (c, l) => {
       const a = `Native capture sidecar exited (code=${c ?? "null"}, signal=${l ?? "null"})`;
-      for (const [, p] of this.pending.entries())
-        clearTimeout(p.timeout), p.reject(new Error(a));
+      for (const [, f] of this.pending.entries())
+        clearTimeout(f.timeout), f.reject(new Error(a));
       this.pending.clear(), this.process = null, this.status !== "idle" && (this.status = "error", this.statusMessage = a);
     });
     try {
@@ -513,9 +513,9 @@ ${l.stderr || ""}`;
         continue;
       }
       if (a.id) {
-        const p = this.pending.get(a.id);
-        if (p) {
-          clearTimeout(p.timeout), this.pending.delete(a.id), p.resolve(a);
+        const f = this.pending.get(a.id);
+        if (f) {
+          clearTimeout(f.timeout), this.pending.delete(a.id), f.resolve(a);
           continue;
         }
       }
@@ -526,11 +526,11 @@ ${l.stderr || ""}`;
     if (!this.process || this.process.killed)
       throw new Error("Native capture process is not running");
     const c = `${JSON.stringify(t)}
-`, l = new Promise((a, p) => {
+`, l = new Promise((a, f) => {
       const w = setTimeout(() => {
-        this.pending.delete(t.id), p(new Error(`Native capture request timed out (${t.cmd})`));
+        this.pending.delete(t.id), f(new Error(`Native capture request timed out (${t.cmd})`));
       }, o);
-      this.pending.set(t.id, { resolve: a, reject: p, timeout: w });
+      this.pending.set(t.id, { resolve: a, reject: f, timeout: w });
     });
     return this.process.stdin.write(c), await l;
   }
@@ -575,11 +575,11 @@ const ge = new qe(), se = new Xe(), ce = d.join(D.getPath("documents"), "velocit
 };
 function Ge(i) {
   if (!i) return;
-  const o = N.getAllDisplays().find((p) => String(p.id) === i);
+  const o = N.getAllDisplays().find((f) => String(f.id) === i);
   if (!o) return;
-  const c = (p) => {
+  const c = (f) => {
     const w = N.dipToScreenPoint;
-    return typeof w == "function" ? w(p) : p;
+    return typeof w == "function" ? w(f) : f;
   }, l = c({ x: o.bounds.x, y: o.bounds.y }), a = c({
     x: o.bounds.x + o.bounds.width,
     y: o.bounds.y + o.bounds.height
@@ -625,7 +625,7 @@ async function Ze(i) {
   }
   return null;
 }
-function et(i, t, o, c, l, a, p, w, h) {
+function et(i, t, o, c, l, a, f, w, h) {
   const x = (r) => r === "recording" ? X : Y, F = (r, e) => {
     if (r === "recording") {
       X = e, e || delete Z.recording;
@@ -638,12 +638,12 @@ function et(i, t, o, c, l, a, p, w, h) {
       e && !e.isDestroyed() && e.close();
     X = null, Y = null, delete Z.recording, delete Z.media;
   }, H = (r, e, s, n) => {
-    const u = e === "recording" ? { width: 420, height: 560 } : { width: 360, height: 290 }, f = 8, g = {
+    const u = e === "recording" ? { width: 420, height: 560 } : { width: 360, height: 290 }, m = 8, g = {
       x: r.x + s.x,
       y: r.y + s.y,
       width: s.width,
       height: s.height
-    }, E = N.getDisplayMatching(r).workArea, W = g.x + Math.round((g.width - u.width) / 2), C = E.x + E.width - u.width, T = Math.max(E.x, Math.min(W, C)), R = n === "top" ? g.y - u.height - f : g.y + g.height + f, ke = E.y + E.height - u.height, Fe = Math.max(E.y, Math.min(R, ke));
+    }, E = N.getDisplayMatching(r).workArea, W = g.x + Math.round((g.width - u.width) / 2), C = E.x + E.width - u.width, T = Math.max(E.x, Math.min(W, C)), R = n === "top" ? g.y - u.height - m : g.y + g.height + m, ke = E.y + E.height - u.height, Fe = Math.max(E.y, Math.min(R, ke));
     return { x: T, y: Fe, width: u.width, height: u.height };
   }, B = () => {
     L.getAllWindows().forEach((r) => {
@@ -675,7 +675,7 @@ function et(i, t, o, c, l, a, p, w, h) {
       const n = new URL(ue);
       n.searchParams.set("windowType", "hud-popover"), n.searchParams.set("kind", r), s.loadURL(n.toString());
     } else
-      s.loadFile(d.join(pe, "index.html"), {
+      s.loadFile(d.join(fe, "index.html"), {
         query: { windowType: "hud-popover", kind: r }
       });
     return F(r, s), s;
@@ -684,13 +684,13 @@ function et(i, t, o, c, l, a, p, w, h) {
     if (!n || n.isDestroyed())
       return { success: !1, message: "HUD window unavailable" };
     Z[r] = { anchorRect: e, side: s };
-    const u = H(n.getBounds(), r, e, s), f = x(r);
-    if (f && !f.isDestroyed()) {
-      f.setBounds(u, !1);
+    const u = H(n.getBounds(), r, e, s), m = x(r);
+    if (m && !m.isDestroyed()) {
+      m.setBounds(u, !1);
       const y = () => {
-        f.isDestroyed() || (f.isVisible() || f.show(), f.webContents.send("hud-settings-updated", b));
+        m.isDestroyed() || (m.isVisible() || m.show(), m.webContents.send("hud-settings-updated", b));
       };
-      return f.webContents.isLoadingMainFrame() ? f.webContents.once("did-finish-load", y) : y(), { success: !0 };
+      return m.webContents.isLoadingMainFrame() ? m.webContents.once("did-finish-load", y) : y(), { success: !0 };
     }
     const g = j(r, u);
     return g.webContents.once("did-finish-load", () => {
@@ -702,7 +702,7 @@ function et(i, t, o, c, l, a, p, w, h) {
     const n = ne();
     if (!K.existsSync(n))
       return { success: !1, message: "ffmpeg executable not found for native audio muxing" };
-    const u = d.parse(r), f = d.join(u.dir, `${u.name}.with-audio${u.ext || ".mp4"}`), g = [
+    const u = d.parse(r), m = d.join(u.dir, `${u.name}.with-audio${u.ext || ".mp4"}`), g = [
       "-y",
       "-i",
       r
@@ -721,7 +721,7 @@ function et(i, t, o, c, l, a, p, w, h) {
       "-b:a",
       "192k",
       "-shortest",
-      f
+      m
     );
     const E = await new Promise((W) => {
       const C = be(n, g, { windowsHide: !0, stdio: ["ignore", "pipe", "pipe"] });
@@ -742,13 +742,13 @@ function et(i, t, o, c, l, a, p, w, h) {
       });
     });
     if (!E.success)
-      return await J(f), { success: !1, message: E.message };
+      return await J(m), { success: !1, message: E.message };
     try {
       await k.unlink(r);
     } catch {
     }
-    return await k.rename(f, r), { success: !0, outputPath: r };
-  }, fe = async (r, e) => {
+    return await k.rename(m, r), { success: !0, outputPath: r };
+  }, me = async (r, e) => {
     const s = d.parse(e);
     let n = d.join(r, e), u = 1;
     for (; ; )
@@ -765,17 +765,17 @@ function et(i, t, o, c, l, a, p, w, h) {
         console.warn("[editor][main] Could not delete recording asset (ignored)", { filePath: r });
       }
   };
-  m.handle("get-sources", async (r, e) => (await ve.getSources(e)).map((n) => ({
+  p.handle("get-sources", async (r, e) => (await ve.getSources(e)).map((n) => ({
     id: n.id,
     name: n.name,
     display_id: n.display_id,
     thumbnail: n.thumbnail ? n.thumbnail.toDataURL() : null,
     appIcon: n.appIcon ? n.appIcon.toDataURL() : null
-  }))), m.handle("select-source", (r, e) => {
+  }))), p.handle("select-source", (r, e) => {
     P = e;
-    const s = p();
+    const s = f();
     return s && s.close(), P;
-  }), m.handle("get-selected-source", () => P), m.handle("start-input-tracking", (r, e) => {
+  }), p.handle("get-selected-source", () => P), p.handle("start-input-tracking", (r, e) => {
     console.info("[auto-zoom][main] start-input-tracking requested", {
       sessionId: e.sessionId,
       sourceId: e.sourceId,
@@ -790,7 +790,7 @@ function et(i, t, o, c, l, a, p, w, h) {
       sessionId: e.sessionId,
       message: s.message
     }), s;
-  }), m.handle("stop-input-tracking", () => {
+  }), p.handle("stop-input-tracking", () => {
     const r = ge.stop();
     return r ? (console.info("[auto-zoom][main] Input tracking stopped with telemetry", {
       sessionId: r.sessionId,
@@ -799,21 +799,21 @@ function et(i, t, o, c, l, a, p, w, h) {
       keyDownCount: r.stats.keyDownCount,
       wheelCount: r.stats.wheelCount
     }), { success: !0, telemetry: r }) : (console.warn("[auto-zoom][main] stop-input-tracking called with no active tracking session"), { success: !1, message: "No active input tracking session" });
-  }), m.handle("open-source-selector", () => {
-    const r = p();
+  }), p.handle("open-source-selector", () => {
+    const r = f();
     if (r) {
       r.focus();
       return;
     }
     o();
-  }), m.handle("open-camera-preview-window", (r, e) => {
+  }), p.handle("open-camera-preview-window", (r, e) => {
     const s = w();
     return s && s.close(), c(e).focus(), { success: !0 };
-  }), m.handle("close-camera-preview-window", () => (l(), { success: !0 })), m.handle("switch-to-editor", () => {
+  }), p.handle("close-camera-preview-window", () => (l(), { success: !0 })), p.handle("switch-to-editor", () => {
     A();
     const r = a();
     r && r.close(), i();
-  }), m.handle("store-recorded-video", async (r, e, s) => {
+  }), p.handle("store-recorded-video", async (r, e, s) => {
     try {
       const n = d.join(_, s);
       return await k.writeFile(n, Buffer.from(e)), V = n, M = null, {
@@ -828,7 +828,7 @@ function et(i, t, o, c, l, a, p, w, h) {
         error: String(n)
       };
     }
-  }), m.handle("start-new-recording-session", async (r, e) => (!!(e != null && e.replaceCurrentTake) && (e != null && e.session) && (await J(e.session.screenVideoPath), await J(e.session.cameraVideoPath), await J(e.session.inputTelemetryPath)), M = null, V = null, A(), t(), { success: !0 })), m.handle("get-hud-settings", () => ({ success: !0, settings: b })), m.handle("preload-hud-popover-windows", () => {
+  }), p.handle("start-new-recording-session", async (r, e) => (!!(e != null && e.replaceCurrentTake) && (e != null && e.session) && (await J(e.session.screenVideoPath), await J(e.session.cameraVideoPath), await J(e.session.inputTelemetryPath)), M = null, V = null, A(), t(), { success: !0 })), p.handle("get-hud-settings", () => ({ success: !0, settings: b })), p.handle("preload-hud-popover-windows", () => {
     const r = a();
     if (!r || r.isDestroyed())
       return { success: !1, message: "HUD window unavailable" };
@@ -837,43 +837,43 @@ function et(i, t, o, c, l, a, p, w, h) {
       const u = x(n);
       if (u && !u.isDestroyed())
         return;
-      const f = H(e, n, s, "top");
-      j(n, f);
+      const m = H(e, n, s, "top");
+      j(n, m);
     }), { success: !0 };
-  }), m.handle("update-hud-settings", (r, e) => (typeof e.micEnabled == "boolean" && (b.micEnabled = e.micEnabled), typeof e.selectedMicDeviceId == "string" && (b.selectedMicDeviceId = e.selectedMicDeviceId), (e.micProcessingMode === "raw" || e.micProcessingMode === "cleaned") && (b.micProcessingMode = e.micProcessingMode), typeof e.cameraEnabled == "boolean" && (b.cameraEnabled = e.cameraEnabled), typeof e.cameraPreviewEnabled == "boolean" && (b.cameraPreviewEnabled = e.cameraPreviewEnabled), typeof e.selectedCameraDeviceId == "string" && (b.selectedCameraDeviceId = e.selectedCameraDeviceId), (e.recordingPreset === "performance" || e.recordingPreset === "balanced" || e.recordingPreset === "quality") && (b.recordingPreset = e.recordingPreset), (e.recordingFps === 60 || e.recordingFps === 120) && (b.recordingFps = e.recordingFps), typeof e.customCursorEnabled == "boolean" && (b.customCursorEnabled = e.customCursorEnabled, e.customCursorEnabled && (b.useLegacyRecorder = !1)), typeof e.useLegacyRecorder == "boolean" && (b.useLegacyRecorder = e.useLegacyRecorder, e.useLegacyRecorder && (b.customCursorEnabled = !1)), (e.recordingEncoder === "h264_libx264" || e.recordingEncoder === "h264_nvenc" || e.recordingEncoder === "hevc_nvenc" || e.recordingEncoder === "h264_amf") && (b.recordingEncoder = e.recordingEncoder), B(), { success: !0, settings: b })), m.handle("set-hud-encoder-options", (r, e) => {
+  }), p.handle("update-hud-settings", (r, e) => (typeof e.micEnabled == "boolean" && (b.micEnabled = e.micEnabled), typeof e.selectedMicDeviceId == "string" && (b.selectedMicDeviceId = e.selectedMicDeviceId), (e.micProcessingMode === "raw" || e.micProcessingMode === "cleaned") && (b.micProcessingMode = e.micProcessingMode), typeof e.cameraEnabled == "boolean" && (b.cameraEnabled = e.cameraEnabled), typeof e.cameraPreviewEnabled == "boolean" && (b.cameraPreviewEnabled = e.cameraPreviewEnabled), typeof e.selectedCameraDeviceId == "string" && (b.selectedCameraDeviceId = e.selectedCameraDeviceId), (e.recordingPreset === "performance" || e.recordingPreset === "balanced" || e.recordingPreset === "quality") && (b.recordingPreset = e.recordingPreset), (e.recordingFps === 60 || e.recordingFps === 120) && (b.recordingFps = e.recordingFps), typeof e.customCursorEnabled == "boolean" && (b.customCursorEnabled = e.customCursorEnabled, e.customCursorEnabled && (b.useLegacyRecorder = !1)), typeof e.useLegacyRecorder == "boolean" && (b.useLegacyRecorder = e.useLegacyRecorder, e.useLegacyRecorder && (b.customCursorEnabled = !1)), (e.recordingEncoder === "h264_libx264" || e.recordingEncoder === "h264_nvenc" || e.recordingEncoder === "hevc_nvenc" || e.recordingEncoder === "h264_amf") && (b.recordingEncoder = e.recordingEncoder), B(), { success: !0, settings: b })), p.handle("set-hud-encoder-options", (r, e) => {
     var n;
     if (!Array.isArray(e))
       return { success: !1, message: "Invalid encoder options payload" };
     const s = e.filter((u) => !!u && typeof u == "object" && (u.encoder === "h264_libx264" || u.encoder === "h264_nvenc" || u.encoder === "hevc_nvenc" || u.encoder === "h264_amf") && typeof u.label == "string" && (u.hardware === "cpu" || u.hardware === "nvidia" || u.hardware === "amd"));
     return s.some((u) => u.encoder === "h264_libx264") || s.unshift({ encoder: "h264_libx264", label: "x264 (CPU)", hardware: "cpu" }), b.encoderOptions = s, b.encoderOptions.some((u) => u.encoder === b.recordingEncoder) || (b.recordingEncoder = ((n = b.encoderOptions[0]) == null ? void 0 : n.encoder) ?? "h264_libx264"), B(), { success: !0, settings: b };
-  }), m.handle("native-capture-encoder-options", async () => {
+  }), p.handle("native-capture-encoder-options", async () => {
     const r = ne(), e = K.existsSync(r) ? r : void 0;
     return await se.getEncoderOptions(e);
-  }), m.handle("native-capture-start", async (r, e) => {
+  }), p.handle("native-capture-start", async (r, e) => {
     var g, y;
-    const s = ne(), n = ((g = e.source) == null ? void 0 : g.displayId) || (typeof (P == null ? void 0 : P.display_id) == "string" ? P.display_id : void 0), u = ((y = e.source) == null ? void 0 : y.type) === "screen" ? Ge(n) : void 0, f = {
+    const s = ne(), n = ((g = e.source) == null ? void 0 : g.displayId) || (typeof (P == null ? void 0 : P.display_id) == "string" ? P.display_id : void 0), u = ((y = e.source) == null ? void 0 : y.type) === "screen" ? Ge(n) : void 0, m = {
       ...e,
       outputPath: d.isAbsolute(e.outputPath) ? e.outputPath : d.join(_, e.outputPath),
       ffmpegPath: e.ffmpegPath || (K.existsSync(s) ? s : void 0),
       captureRegion: e.captureRegion || u
     };
-    return await se.start(f);
-  }), m.handle("native-capture-stop", async (r, e) => await se.stop(e)), m.handle("native-capture-status", (r, e) => ({ success: !0, ...se.getStatus(e) })), m.handle("open-hud-popover-window", (r, e) => e.kind !== "recording" && e.kind !== "media" ? { success: !1, message: "Invalid popover kind" } : z(e.kind, e.anchorRect, e.side)), m.handle("toggle-hud-popover-window", (r, e) => {
+    return await se.start(m);
+  }), p.handle("native-capture-stop", async (r, e) => await se.stop(e)), p.handle("native-capture-status", (r, e) => ({ success: !0, ...se.getStatus(e) })), p.handle("open-hud-popover-window", (r, e) => e.kind !== "recording" && e.kind !== "media" ? { success: !1, message: "Invalid popover kind" } : z(e.kind, e.anchorRect, e.side)), p.handle("toggle-hud-popover-window", (r, e) => {
     if (e.kind !== "recording" && e.kind !== "media")
       return { success: !1, message: "Invalid popover kind" };
     const s = x(e.kind);
     return s && !s.isDestroyed() && s.isVisible() ? (s.hide(), { success: !0, opened: !1 }) : { ...z(e.kind, e.anchorRect, e.side), opened: !0 };
-  }), m.handle("close-hud-popover-window", (r, e) => {
+  }), p.handle("close-hud-popover-window", (r, e) => {
     if (!e)
       return [X, Y].forEach((n) => {
         n && !n.isDestroyed() && n.hide();
       }), { success: !0 };
     const s = x(e);
     return s && !s.isDestroyed() && s.hide(), { success: !0 };
-  }), m.handle("close-current-hud-popover-window", (r) => {
+  }), p.handle("close-current-hud-popover-window", (r) => {
     const e = L.fromWebContents(r.sender);
     return !e || e.isDestroyed() ? { success: !1 } : e === X ? (e.hide(), { success: !0 }) : e === Y ? (e.hide(), { success: !0 }) : (e.hide(), { success: !0 });
-  }), m.handle("set-hud-overlay-width", (r, e) => {
+  }), p.handle("set-hud-overlay-width", (r, e) => {
     const s = a();
     if (!s || s.isDestroyed())
       return { success: !1 };
@@ -884,24 +884,24 @@ function et(i, t, o, c, l, a, p, w, h) {
       width: n,
       height: u.height
     }, !1), { success: !0 };
-  }), m.handle("get-hud-overlay-popover-side", () => {
+  }), p.handle("get-hud-overlay-popover-side", () => {
     const r = a();
     if (!r || r.isDestroyed())
       return { success: !1 };
-    const e = r.getBounds(), n = N.getDisplayMatching(e).workArea, u = e.y + e.height / 2, f = n.y + n.height / 2;
-    return { success: !0, side: u >= f ? "top" : "bottom" };
-  }), m.handle("set-hud-overlay-height", (r, e, s = "bottom") => {
+    const e = r.getBounds(), n = N.getDisplayMatching(e).workArea, u = e.y + e.height / 2, m = n.y + n.height / 2;
+    return { success: !0, side: u >= m ? "top" : "bottom" };
+  }), p.handle("set-hud-overlay-height", (r, e, s = "bottom") => {
     const n = a();
     if (!n || n.isDestroyed())
       return { success: !1 };
-    const u = Math.max(100, Math.min(720, Math.round(e))), f = n.getBounds(), y = N.getDisplayMatching(f).workArea, E = y.x + y.width - f.width, W = y.y + y.height - u, C = Math.max(y.x, Math.min(f.x, E)), T = s === "top" ? f.y : f.y + f.height - u, R = Math.max(y.y, Math.min(T, W));
+    const u = Math.max(100, Math.min(720, Math.round(e))), m = n.getBounds(), y = N.getDisplayMatching(m).workArea, E = y.x + y.width - m.width, W = y.y + y.height - u, C = Math.max(y.x, Math.min(m.x, E)), T = s === "top" ? m.y : m.y + m.height - u, R = Math.max(y.y, Math.min(T, W));
     return n.setBounds({
       x: C,
       y: R,
-      width: f.width,
+      width: m.width,
       height: u
     }, !1), { success: !0 };
-  }), m.handle("store-recording-session", async (r, e) => {
+  }), p.handle("store-recording-session", async (r, e) => {
     try {
       console.info("[auto-zoom][main] store-recording-session requested", {
         sessionId: typeof e.session.id == "string" ? e.session.id : void 0,
@@ -913,10 +913,10 @@ function et(i, t, o, c, l, a, p, w, h) {
       await k.writeFile(s, Buffer.from(e.screenVideoData));
       let n;
       e.cameraVideoData && e.cameraFileName && (n = d.join(_, e.cameraFileName), await k.writeFile(n, Buffer.from(e.cameraVideoData)));
-      let u, f;
+      let u, m;
       if (e.inputTelemetry) {
         const y = e.inputTelemetryFileName || `${d.parse(e.screenFileName).name}.telemetry.json`;
-        u = d.join(_, y), await k.writeFile(u, JSON.stringify(e.inputTelemetry), "utf-8"), f = e.inputTelemetry, console.info("[auto-zoom][main] Telemetry sidecar saved", {
+        u = d.join(_, y), await k.writeFile(u, JSON.stringify(e.inputTelemetry), "utf-8"), m = e.inputTelemetry, console.info("[auto-zoom][main] Telemetry sidecar saved", {
           inputTelemetryPath: u,
           sessionId: e.inputTelemetry.sessionId,
           totalEvents: e.inputTelemetry.stats.totalEvents
@@ -930,7 +930,7 @@ function et(i, t, o, c, l, a, p, w, h) {
         screenVideoPath: s,
         ...n ? { cameraVideoPath: n } : {},
         ...u ? { inputTelemetryPath: u } : {},
-        ...f ? { inputTelemetry: f } : {}
+        ...m ? { inputTelemetry: m } : {}
       };
       return M = g, V = s, console.info("[auto-zoom][main] Recording session stored in memory", {
         sessionId: typeof e.session.id == "string" ? e.session.id : void 0,
@@ -948,22 +948,22 @@ function et(i, t, o, c, l, a, p, w, h) {
         error: String(s)
       };
     }
-  }), m.handle("store-native-recording-session", async (r, e) => {
+  }), p.handle("store-native-recording-session", async (r, e) => {
     try {
       let s = e.screenVideoPath;
       if (!e.screenVideoPath.startsWith(_)) {
         const T = `${d.parse(e.screenVideoPath).name}.mp4`;
-        s = await fe(_, T), await k.copyFile(e.screenVideoPath, s);
+        s = await me(_, T), await k.copyFile(e.screenVideoPath, s);
       }
       let n = typeof e.session.micCaptured == "boolean" ? !!e.session.micCaptured : !1;
       const u = typeof e.session.micStartOffsetMs == "number" ? Number(e.session.micStartOffsetMs) : 0;
-      let f;
+      let m;
       if (e.micAudioData && e.micAudioFileName) {
-        f = d.join(_, e.micAudioFileName), await k.writeFile(f, Buffer.from(e.micAudioData));
-        const T = await Ie(s, f, u);
+        m = d.join(_, e.micAudioFileName), await k.writeFile(m, Buffer.from(e.micAudioData));
+        const T = await Ie(s, m, u);
         T.success ? n = !0 : console.warn("[native-capture][main] Failed to mux microphone audio into native capture", {
           screenVideoPath: s,
-          micAudioPath: f,
+          micAudioPath: m,
           message: T.message
         });
       }
@@ -984,7 +984,7 @@ function et(i, t, o, c, l, a, p, w, h) {
         ...y ? { inputTelemetryPath: y } : {},
         ...E ? { inputTelemetry: E } : {}
       };
-      return M = C, V = s, await J(f), {
+      return M = C, V = s, await J(m), {
         success: !0,
         session: C,
         message: "Native recording session stored successfully"
@@ -996,7 +996,7 @@ function et(i, t, o, c, l, a, p, w, h) {
         error: String(s)
       };
     }
-  }), m.handle("get-recorded-video-path", async () => {
+  }), p.handle("get-recorded-video-path", async () => {
     try {
       const e = (await k.readdir(_)).filter((u) => u.endsWith(".webm"));
       if (e.length === 0)
@@ -1006,35 +1006,35 @@ function et(i, t, o, c, l, a, p, w, h) {
     } catch (r) {
       return console.error("Failed to get video path:", r), { success: !1, message: "Failed to get video path", error: String(r) };
     }
-  }), m.handle("set-recording-state", (r, e) => {
+  }), p.handle("set-recording-state", (r, e) => {
     e && A(), h && h(e, (P || { name: "Screen" }).name ?? "Screen");
-  }), m.handle("open-external-url", async (r, e) => {
+  }), p.handle("open-external-url", async (r, e) => {
     try {
-      return await me.openExternal(e), { success: !0 };
+      return await pe.openExternal(e), { success: !0 };
     } catch (s) {
       return console.error("Failed to open URL:", s), { success: !1, error: String(s) };
     }
-  }), m.handle("get-asset-base-path", () => {
+  }), p.handle("get-asset-base-path", () => {
     try {
       return D.isPackaged ? d.join(process.resourcesPath, "assets") : d.join(D.getAppPath(), "public", "assets");
     } catch (r) {
       return console.error("Failed to resolve asset base path:", r), null;
     }
-  }), m.handle("save-exported-video", async (r, e, s) => {
+  }), p.handle("save-exported-video", async (r, e, s) => {
     try {
-      const n = s.toLowerCase().endsWith(".gif"), u = n ? [{ name: "GIF Image", extensions: ["gif"] }] : [{ name: "MP4 Video", extensions: ["mp4"] }], f = await ie.showSaveDialog({
+      const n = s.toLowerCase().endsWith(".gif"), u = n ? [{ name: "GIF Image", extensions: ["gif"] }] : [{ name: "MP4 Video", extensions: ["mp4"] }], m = await ie.showSaveDialog({
         title: n ? "Save Exported GIF" : "Save Exported Video",
         defaultPath: d.join(D.getPath("downloads"), s),
         filters: u,
         properties: ["createDirectory", "showOverwriteConfirmation"]
       });
-      return f.canceled || !f.filePath ? {
+      return m.canceled || !m.filePath ? {
         success: !1,
         cancelled: !0,
         message: "Export cancelled"
-      } : (await k.writeFile(f.filePath, Buffer.from(e)), {
+      } : (await k.writeFile(m.filePath, Buffer.from(e)), {
         success: !0,
-        path: f.filePath,
+        path: m.filePath,
         message: "Video exported successfully"
       });
     } catch (n) {
@@ -1044,13 +1044,13 @@ function et(i, t, o, c, l, a, p, w, h) {
         error: String(n)
       };
     }
-  }), m.handle("get-default-export-directory", async () => {
+  }), p.handle("get-default-export-directory", async () => {
     try {
       return await q(ce), { success: !0, path: ce };
     } catch (r) {
       return console.error("Failed to resolve default export directory:", r), { success: !1, message: "Failed to resolve default export directory", error: String(r) };
     }
-  }), m.handle("choose-export-directory", async (r, e) => {
+  }), p.handle("choose-export-directory", async (r, e) => {
     try {
       const s = await ie.showOpenDialog({
         title: "Choose Export Folder",
@@ -1064,10 +1064,10 @@ function et(i, t, o, c, l, a, p, w, h) {
     } catch (s) {
       return console.error("Failed to choose export directory:", s), { success: !1, message: "Failed to choose export directory", error: String(s) };
     }
-  }), m.handle("save-exported-video-to-directory", async (r, e, s, n) => {
+  }), p.handle("save-exported-video-to-directory", async (r, e, s, n) => {
     try {
       await q(n);
-      const u = await fe(n, s);
+      const u = await me(n, s);
       return await k.writeFile(u, Buffer.from(e)), {
         success: !0,
         path: u,
@@ -1080,15 +1080,15 @@ function et(i, t, o, c, l, a, p, w, h) {
         error: String(u)
       };
     }
-  }), m.handle("open-directory", async (r, e) => {
+  }), p.handle("open-directory", async (r, e) => {
     try {
       await q(e);
-      const s = await me.openPath(e);
+      const s = await pe.openPath(e);
       return s ? { success: !1, message: s } : { success: !0 };
     } catch (s) {
       return console.error("Failed to open directory:", s), { success: !1, message: "Failed to open directory", error: String(s) };
     }
-  }), m.handle("open-video-file-picker", async () => {
+  }), p.handle("open-video-file-picker", async () => {
     try {
       const r = await ie.showOpenDialog({
         title: "Select Video File",
@@ -1110,7 +1110,7 @@ function et(i, t, o, c, l, a, p, w, h) {
         error: String(r)
       };
     }
-  }), m.handle("set-current-video-path", async (r, e) => {
+  }), p.handle("set-current-video-path", async (r, e) => {
     V = e;
     const s = await Ze(e);
     return M = s ? {
@@ -1130,17 +1130,17 @@ function et(i, t, o, c, l, a, p, w, h) {
       telemetryPath: s == null ? void 0 : s.path,
       generatedSessionId: M == null ? void 0 : M.id
     }), { success: !0 };
-  }), m.handle("get-current-video-path", () => V ? { success: !0, path: V } : { success: !1 }), m.handle("clear-current-video-path", () => (V = null, M = null, { success: !0 })), m.handle("set-current-recording-session", (r, e) => (M = e, V = typeof e.screenVideoPath == "string" ? e.screenVideoPath : null, console.info("[auto-zoom][main] set-current-recording-session", {
+  }), p.handle("get-current-video-path", () => V ? { success: !0, path: V } : { success: !1 }), p.handle("clear-current-video-path", () => (V = null, M = null, { success: !0 })), p.handle("set-current-recording-session", (r, e) => (M = e, V = typeof e.screenVideoPath == "string" ? e.screenVideoPath : null, console.info("[auto-zoom][main] set-current-recording-session", {
     sessionId: typeof e.id == "string" ? e.id : void 0,
     hasTelemetry: !!e.inputTelemetry,
     telemetryPath: typeof e.inputTelemetryPath == "string" ? e.inputTelemetryPath : void 0
-  }), { success: !0 })), m.handle("get-current-recording-session", () => (console.info("[auto-zoom][main] get-current-recording-session", {
+  }), { success: !0 })), p.handle("get-current-recording-session", () => (console.info("[auto-zoom][main] get-current-recording-session", {
     hasSession: !!M,
     sessionId: typeof (M == null ? void 0 : M.id) == "string" ? M.id : void 0,
     hasTelemetry: !!(M != null && M.inputTelemetry)
-  }), M ? { success: !0, session: M } : { success: !1 })), m.handle("get-platform", () => process.platform);
+  }), M ? { success: !0, session: M } : { success: !1 })), p.handle("get-platform", () => process.platform);
 }
-const tt = d.dirname(de(import.meta.url)), _ = d.join(D.getPath("userData"), "recordings"), he = d.join(D.getPath("temp"), "openscreen-session-data");
+const tt = d.dirname(de(import.meta.url)), _ = d.join(D.getPath("userData"), "recordings"), he = d.join(D.getPath("temp"), "velocity-session-data");
 D.commandLine.appendSwitch("disable-gpu-shader-disk-cache");
 D.commandLine.appendSwitch("disk-cache-dir", d.join(he, "Cache"));
 D.setPath("sessionData", he);
@@ -1159,10 +1159,10 @@ async function rt() {
   }
 }
 process.env.APP_ROOT = d.join(tt, "..");
-const ue = process.env.VITE_DEV_SERVER_URL, gt = d.join(process.env.APP_ROOT, "dist-electron"), pe = d.join(process.env.APP_ROOT, "dist");
-process.env.VITE_PUBLIC = ue ? d.join(process.env.APP_ROOT, "public") : pe;
+const ue = process.env.VITE_DEV_SERVER_URL, gt = d.join(process.env.APP_ROOT, "dist-electron"), fe = d.join(process.env.APP_ROOT, "dist");
+process.env.VITE_PUBLIC = ue ? d.join(process.env.APP_ROOT, "public") : fe;
 let v = null, O = null, $ = null, Pe = "";
-const De = Me("openscreen.png"), ot = Me("rec-button.png");
+const De = Me("velocity.png"), ot = Me("rec-button.png");
 function oe() {
   v = xe();
 }
@@ -1172,7 +1172,7 @@ function we() {
   });
 }
 function Me(i) {
-  return Te.createFromPath(d.join(process.env.VITE_PUBLIC || pe, i)).resize({
+  return Te.createFromPath(d.join(process.env.VITE_PUBLIC || fe, i)).resize({
     width: 24,
     height: 24,
     quality: "best"
@@ -1227,8 +1227,8 @@ D.whenReady().then(async () => {
         thumbnailSize: { width: 0, height: 0 },
         fetchWindowIcons: !1
       });
-      let a = c != null && c.id ? l.find((p) => p.id === c.id) : void 0;
-      if (!a && (c != null && c.display_id) && (a = l.find((p) => p.display_id === c.display_id && p.id.startsWith("screen:"))), a || (a = l.find((p) => p.id.startsWith("screen:")) || l[0]), !a) {
+      let a = c != null && c.id ? l.find((f) => f.id === c.id) : void 0;
+      if (!a && (c != null && c.display_id) && (a = l.find((f) => f.display_id === c.display_id && f.id.startsWith("screen:"))), a || (a = l.find((f) => f.id.startsWith("screen:")) || l[0]), !a) {
         o({});
         return;
       }
@@ -1259,6 +1259,6 @@ D.whenReady().then(async () => {
 export {
   gt as MAIN_DIST,
   _ as RECORDINGS_DIR,
-  pe as RENDERER_DIST,
+  fe as RENDERER_DIST,
   ue as VITE_DEV_SERVER_URL
 };

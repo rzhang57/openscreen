@@ -1,9 +1,9 @@
 // @see - https://www.electron.build/configuration/configuration
 {
   "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
-  "appId": "com.siddharthvaddem.openscreen",
+  "appId": "dev.ryan.velocity",
   "asar": true,
-  "productName": "Openscreen",
+  "productName": "velocity",
   "npmRebuild": true,
   "buildDependenciesFromSource": true,
   "compression": "normal",
@@ -64,5 +64,9 @@
       "nsis"
     ],
     "icon": "icons/icons/win/icon.ico"
+  },
+  "publish": {
+    "provider": "github",
+    "releaseType": "draft"
   }
 }

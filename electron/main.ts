@@ -9,7 +9,7 @@ import { getSelectedSourceForDisplayMedia, registerIpcHandlers } from './ipc/han
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 export const RECORDINGS_DIR = path.join(app.getPath('userData'), 'recordings')
-const SESSION_DATA_DIR = path.join(app.getPath('temp'), 'openscreen-session-data')
+const SESSION_DATA_DIR = path.join(app.getPath('temp'), 'velocity-session-data')
 
 // Keep Chromium cache writes out of restricted locations on Windows.
 app.commandLine.appendSwitch('disable-gpu-shader-disk-cache')
@@ -60,7 +60,7 @@ let tray: Tray | null = null
 let selectedSourceName = ''
 
 // Tray Icons
-const defaultTrayIcon = getTrayIcon('openscreen.png');
+const defaultTrayIcon = getTrayIcon('velocity.png');
 const recordingTrayIcon = getTrayIcon('rec-button.png');
 
 function createWindow() {
