@@ -88,17 +88,88 @@ function toEven(value: number): number {
   return Math.max(2, rounded - (rounded % 2))
 }
 
-function scaleToMatchSourceAspect(
-  requested: { width: number; height: number },
-  source: { width: number; height: number }
-): { width: number; height: number } {
-  const requestedArea = Math.max(1, requested.width * requested.height)
-  const sourceArea = Math.max(1, source.width * source.height)
-  const scale = Math.min(1, Math.sqrt(requestedArea / sourceArea))
+type RectBounds = { x: number; y: number; width: number; height: number }
+
+function toFiniteNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function toRectBounds(value: unknown): RectBounds | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const candidate = value as { x?: unknown; y?: unknown; width?: unknown; height?: unknown }
+  const x = toFiniteNumber(candidate.x)
+  const y = toFiniteNumber(candidate.y)
+  const width = toFiniteNumber(candidate.width)
+  const height = toFiniteNumber(candidate.height)
+  if (typeof x !== 'number' || typeof y !== 'number' || typeof width !== 'number' || typeof height !== 'number') {
+    return undefined
+  }
+  if (width <= 0 || height <= 0) return undefined
+  return { x, y, width, height }
+}
+
+function resolveDisplayPhysicalMapper(sourceDisplayId?: string): ((point: { x: number; y: number }) => { x: number; y: number }) | undefined {
+  if (!sourceDisplayId) return undefined
+  const displays = screen.getAllDisplays()
+  const targetDisplay = displays.find((display) => String(display.id) === sourceDisplayId)
+  if (!targetDisplay) return undefined
+  const dipToScreenPoint = (screen as unknown as { dipToScreenPoint?: (p: { x: number; y: number }) => { x: number; y: number } }).dipToScreenPoint
+  if (typeof dipToScreenPoint !== 'function') return undefined
+
+  const dipBounds = targetDisplay.bounds
+  const physicalTopLeft = dipToScreenPoint({ x: dipBounds.x, y: dipBounds.y })
+  const physicalBottomRight = dipToScreenPoint({ x: dipBounds.x + dipBounds.width, y: dipBounds.y + dipBounds.height })
+  const physicalWidth = physicalBottomRight.x - physicalTopLeft.x
+  const physicalHeight = physicalBottomRight.y - physicalTopLeft.y
+  if (!Number.isFinite(physicalWidth) || !Number.isFinite(physicalHeight) || Math.abs(physicalWidth) < 1 || Math.abs(physicalHeight) < 1) {
+    return undefined
+  }
+
+  const scaleX = physicalWidth / dipBounds.width
+  const scaleY = physicalHeight / dipBounds.height
+  if (!Number.isFinite(scaleX) || !Number.isFinite(scaleY) || Math.abs(scaleX) < 0.01 || Math.abs(scaleY) < 0.01) {
+    return undefined
+  }
+
+  return (point: { x: number; y: number }) => ({
+    x: dipBounds.x + ((point.x - physicalTopLeft.x) / scaleX),
+    y: dipBounds.y + ((point.y - physicalTopLeft.y) / scaleY),
+  })
+}
+
+function normalizeWindowTelemetryForBounds(
+  telemetry: InputTelemetryFileV1,
+  sourceBounds: RectBounds
+): InputTelemetryFileV1 {
+  const physicalToDip = resolveDisplayPhysicalMapper(telemetry.sourceDisplayId)
+  const normalizedEvents = telemetry.events.map((event) => {
+    if (
+      (event.type !== 'mouseDown' && event.type !== 'mouseUp' && event.type !== 'mouseMoveSampled' && event.type !== 'wheel')
+      || typeof event.x !== 'number'
+      || typeof event.y !== 'number'
+    ) {
+      return event
+    }
+    if (!physicalToDip) {
+      return event
+    }
+    const dipPoint = physicalToDip({ x: event.x, y: event.y })
+    return {
+      ...event,
+      x: dipPoint.x,
+      y: dipPoint.y,
+    }
+  })
 
   return {
-    width: toEven(source.width * scale),
-    height: toEven(source.height * scale),
+    ...telemetry,
+    sourceBounds: {
+      x: sourceBounds.x,
+      y: sourceBounds.y,
+      width: sourceBounds.width,
+      height: sourceBounds.height,
+    },
+    events: normalizedEvents,
   }
 }
 
@@ -658,16 +729,8 @@ export function registerIpcHandlers(
     const normalizedVideo = platform === 'darwin' && sourceRegion
       ? {
           ...payload.video,
-          ...scaleToMatchSourceAspect(
-            {
-              width: payload.video.width,
-              height: payload.video.height,
-            },
-            {
-              width: sourceRegion.width,
-              height: sourceRegion.height,
-            }
-          ),
+          width: toEven(sourceRegion.width),
+          height: toEven(sourceRegion.height),
         }
       : payload.video
     const normalizedPayload: NativeCaptureStartPayload = {
@@ -950,10 +1013,17 @@ export function registerIpcHandlers(
       let inputTelemetryPath: string | undefined
       let inputTelemetry: InputTelemetryFileV1 | undefined
       if (payload.inputTelemetry) {
+        const capturedSourceBounds = toRectBounds((payload.session as { capturedSourceBounds?: unknown }).capturedSourceBounds)
+        const normalizedTelemetry = (
+          payload.inputTelemetry.sourceKind === 'window'
+          && capturedSourceBounds
+        )
+          ? normalizeWindowTelemetryForBounds(payload.inputTelemetry, capturedSourceBounds)
+          : payload.inputTelemetry
         const telemetryFileName = payload.inputTelemetryFileName || `${path.parse(finalScreenVideoPath).name}.telemetry.json`
         inputTelemetryPath = path.join(RECORDINGS_DIR, telemetryFileName)
-        await fs.writeFile(inputTelemetryPath, JSON.stringify(payload.inputTelemetry), 'utf-8')
-        inputTelemetry = payload.inputTelemetry
+        await fs.writeFile(inputTelemetryPath, JSON.stringify(normalizedTelemetry), 'utf-8')
+        inputTelemetry = normalizedTelemetry
       }
 
       const normalizedSession = {

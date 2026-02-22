@@ -110,6 +110,7 @@ export class NativeCaptureService {
         height: numberOrUndefined(response.payload?.height),
         fpsActual: numberOrUndefined(response.payload?.fpsActual),
         bytes: numberOrUndefined(response.payload?.bytes) ?? stats?.size,
+        sourceBounds: parseSourceBounds(response.payload?.sourceBounds),
       };
       this.status = "idle";
       this.statusMessage = "";
@@ -400,4 +401,24 @@ function resolveSidecarExecutablePath(): string | null {
 
 function numberOrUndefined(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function parseSourceBounds(value: unknown): NativeCaptureSessionResult["sourceBounds"] | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const candidate = value as { x?: unknown; y?: unknown; width?: unknown; height?: unknown };
+  const x = numberOrUndefined(candidate.x);
+  const y = numberOrUndefined(candidate.y);
+  const width = numberOrUndefined(candidate.width);
+  const height = numberOrUndefined(candidate.height);
+  if (
+    typeof x !== "number"
+    || typeof y !== "number"
+    || typeof width !== "number"
+    || typeof height !== "number"
+    || width <= 0
+    || height <= 0
+  ) {
+    return undefined;
+  }
+  return { x, y, width, height };
 }

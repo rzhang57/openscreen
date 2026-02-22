@@ -186,6 +186,16 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
     return fps === 120 ? 40_000_000 : 24_000_000;
   };
 
+  const computeNativeBitrate = (preset: RecordingPreset, fps: RecordingFps) => {
+    const baseByPreset: Record<RecordingPreset, number> = {
+      performance: 14_000_000,
+      balanced: 22_000_000,
+      quality: 32_000_000,
+    };
+    const fpsMultiplier = fps === 120 ? 1.7 : 1;
+    return Math.round(baseByPreset[preset] * fpsMultiplier);
+  };
+
   const stopAllTracks = () => {
     if (stream.current) {
       stream.current.getTracks().forEach(track => track.stop());
@@ -485,6 +495,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
         requestedCaptureHeight: requestedProfile?.height,
         actualCaptureWidth: nativeResult.result.width,
         actualCaptureHeight: nativeResult.result.height,
+        capturedSourceBounds: nativeResult.result.sourceBounds,
         autoZoomGeneratedAtMs: undefined,
         autoZoomAlgorithmVersion: undefined,
         customCursorEnabled: nativeCustomCursorEnabledRef.current,
@@ -610,7 +621,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
       if (canTryNativeCapture && shouldPreferNative) {
         const selectedEncoder = options.recordingEncoder || "h264_libx264";
         const buildNativePayload = async (encoder: RecordingEncoder): Promise<NativeCaptureStartPayload> => {
-          let bitrate = computeBitrate(captureProfile.width, captureProfile.height, captureProfile.fps);
+          let bitrate = computeNativeBitrate(options.recordingPreset ?? "quality", captureProfile.fps);
           if (encoder === "h264_nvenc") {
             bitrate = Math.max(8_000_000, Math.round(bitrate * 0.8));
           } else if (encoder === "hevc_nvenc") {
