@@ -90,7 +90,7 @@ export class NativeCaptureService {
         id: this.nextId("stop"),
         cmd: "stop_capture",
         payload,
-      }, 20_000);
+      }, 120_000);
       if (!response.ok) {
         this.status = "error";
         this.statusMessage = response.error || "Failed to stop native capture";
@@ -275,7 +275,11 @@ export class NativeCaptureService {
       this.consumeStdout(chunk);
     });
     child.stderr.setEncoding("utf8");
-    child.stderr.on("data", () => {});
+    child.stderr.on("data", (chunk: string) => {
+      const text = chunk.trim();
+      if (!text) return;
+      console.info("[native-capture][sidecar][stderr]", text);
+    });
     child.on("exit", (code, signal) => {
       const message = `Native capture sidecar exited (code=${code ?? "null"}, signal=${signal ?? "null"})`;
       for (const [, pending] of this.pending.entries()) {
@@ -342,6 +346,8 @@ export class NativeCaptureService {
     if (!this.process || this.process.killed) {
       throw new Error("Native capture process is not running");
     }
+    const startedAt = Date.now();
+    console.info("[native-capture][main] -> sidecar", { cmd: request.cmd, id: request.id, timeoutMs });
     const serialized = `${JSON.stringify(request)}\n`;
     const promise = new Promise<SidecarResponse>((resolve, reject) => {
       const timeout = setTimeout(() => {
@@ -351,7 +357,15 @@ export class NativeCaptureService {
       this.pending.set(request.id, { resolve, reject, timeout });
     });
     this.process.stdin.write(serialized);
-    return await promise;
+    const response = await promise;
+    console.info("[native-capture][main] <- sidecar", {
+      cmd: request.cmd,
+      id: request.id,
+      ok: response.ok,
+      elapsedMs: Date.now() - startedAt,
+      error: response.error,
+    });
+    return response;
   }
 
   private nextId(prefix: string): string {

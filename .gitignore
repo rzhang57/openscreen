@@ -30,3 +30,6 @@ native-capture-sidecar/bin/darwin/native-capture-sidecar
 native-capture-sidecar/target/
 !native-capture-sidecar/bin/win32/.gitkeep
 !native-capture-sidecar/bin/darwin/.gitkeep
+
+.cache
+native-capture-sidecar/macos

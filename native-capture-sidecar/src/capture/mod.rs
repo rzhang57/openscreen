@@ -16,6 +16,7 @@ pub struct ActiveCapture {
     pub fps: u32,
     pub started_at: Instant,
     pub platform: String,
+    pub restore_cursor_on_stop: bool,
     pub child: std::process::Child,
 }
 
@@ -113,6 +114,10 @@ pub fn handle_stop(
     let bytes = std::fs::metadata(&capture.output_path)
         .map(|m| m.len())
         .unwrap_or(0);
+
+    if capture.platform == "darwin" && capture.restore_cursor_on_stop {
+        macos::restore_cursor_visibility();
+    }
 
     Response::ok(
         id,

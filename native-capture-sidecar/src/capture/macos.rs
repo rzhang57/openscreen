@@ -26,6 +26,7 @@ pub fn start_capture(start_payload: StartCapturePayload) -> Result<ActiveCapture
         );
     }
     let ffmpeg_exe = ffmpeg_exe.unwrap_or_else(|| "ffmpeg".to_string());
+    let should_hide_native_cursor = start_payload.cursor.mode == "hide";
 
     let output_path = start_payload.output_path.clone();
     let mut command = build_ffmpeg_command(&ffmpeg_exe, &start_payload)?;
@@ -41,15 +42,25 @@ pub fn start_capture(start_payload: StartCapturePayload) -> Result<ActiveCapture
         .map_err(|err| format!("failed to spawn ffmpeg: {err}"))?;
     let mut child = child;
 
+    if should_hide_native_cursor {
+        hide_cursor_globally();
+    }
+
     thread::sleep(Duration::from_millis(350));
     match child.try_wait() {
         Ok(Some(status)) => {
+            if should_hide_native_cursor {
+                show_cursor_globally();
+            }
             return Err(format!(
                 "ffmpeg exited immediately during startup (status={status}). Confirm screen capture permissions and avfoundation input."
             ));
         }
         Ok(None) => {}
         Err(err) => {
+            if should_hide_native_cursor {
+                show_cursor_globally();
+            }
             return Err(format!("failed to verify ffmpeg startup: {err}"));
         }
     }
@@ -62,6 +73,7 @@ pub fn start_capture(start_payload: StartCapturePayload) -> Result<ActiveCapture
         fps: start_payload.video.fps,
         started_at: Instant::now(),
         platform: "darwin".to_string(),
+        restore_cursor_on_stop: should_hide_native_cursor,
         child,
     })
 }
@@ -138,4 +150,32 @@ fn parse_screen_index_from_name(name: &str) -> Option<u32> {
     let digits: String = trimmed.chars().filter(|ch| ch.is_ascii_digit()).collect();
     let one_based = digits.parse::<u32>().ok()?;
     Some(one_based.saturating_sub(1))
+}
+
+pub fn restore_cursor_visibility() {
+    show_cursor_globally();
+}
+
+#[cfg(target_os = "macos")]
+#[link(name = "ApplicationServices", kind = "framework")]
+unsafe extern "C" {
+    fn CGMainDisplayID() -> u32;
+    fn CGDisplayHideCursor(display: u32) -> i32;
+    fn CGDisplayShowCursor(display: u32) -> i32;
+}
+
+fn hide_cursor_globally() {
+    #[cfg(target_os = "macos")]
+    unsafe {
+        let display = CGMainDisplayID();
+        let _ = CGDisplayHideCursor(display);
+    }
+}
+
+fn show_cursor_globally() {
+    #[cfg(target_os = "macos")]
+    unsafe {
+        let display = CGMainDisplayID();
+        let _ = CGDisplayShowCursor(display);
+    }
 }

@@ -407,6 +407,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 
   const stopNativeCaptureFlow = async () => {
     const sessionId = sessionIdRef.current;
+    console.info("[native-capture][renderer] stop flow started", { sessionId });
     setRecording(false);
     window.electronAPI?.setRecordingState(false);
 
@@ -416,9 +417,16 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
     let nativeResult: Awaited<ReturnType<typeof window.electronAPI.nativeCaptureStop>> | null = null;
     let inputTelemetry: InputTelemetryFileV1 | undefined;
     try {
+      console.info("[native-capture][renderer] requesting native-capture-stop", { sessionId });
       nativeResult = await window.electronAPI.nativeCaptureStop({
         sessionId,
         finalize: true,
+      });
+      console.info("[native-capture][renderer] native-capture-stop resolved", {
+        sessionId,
+        success: nativeResult?.success,
+        message: nativeResult?.message,
+        outputPath: nativeResult?.result?.outputPath,
       });
     } catch (error) {
       console.error("[native-capture] Failed to stop native capture", error);
@@ -436,6 +444,10 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
     }
 
     const auxiliaryResult = await auxiliaryResultPromise;
+    console.info("[native-capture][renderer] auxiliary capture stop resolved", {
+      hasMicBlob: Boolean(auxiliaryResult.micBlob),
+      hasCameraBlob: Boolean(auxiliaryResult.cameraBlob),
+    });
 
     if (!nativeResult?.success || !nativeResult.result?.outputPath) {
       console.error("[native-capture] No output from native capture stop", nativeResult);
@@ -482,6 +494,11 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
     };
 
     const stored = await window.electronAPI.storeNativeRecordingSession(sessionPayload);
+    console.info("[native-capture][renderer] store-native-recording-session resolved", {
+      success: stored?.success,
+      message: stored?.message,
+      hasSession: Boolean(stored?.session),
+    });
     if (!stored.success || !stored.session) {
       console.error("[native-capture] Failed to store native recording session", stored.message);
       nativeOptionsRef.current = null;
@@ -490,6 +507,10 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
     }
     nativeOptionsRef.current = null;
     nativeCaptureProfileRef.current = null;
+    console.info("[native-capture][renderer] switching to editor", {
+      sessionId: typeof stored.session.id === "string" ? stored.session.id : undefined,
+      screenVideoPath: typeof stored.session.screenVideoPath === "string" ? stored.session.screenVideoPath : undefined,
+    });
     await window.electronAPI.setCurrentRecordingSession(stored.session);
     await window.electronAPI.switchToEditor();
   };

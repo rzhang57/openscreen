@@ -383,6 +383,8 @@ class InputTrackingService {
     __publicField(this, "lastMoveTs", 0);
     __publicField(this, "lastMoveX", -1);
     __publicField(this, "lastMoveY", -1);
+    __publicField(this, "cursorPollInterval", null);
+    __publicField(this, "lastCursorPollEmitTs", 0);
   }
   start(payload, selectedSource2) {
     this.stop();
@@ -403,6 +405,7 @@ class InputTrackingService {
     this.lastMoveTs = 0;
     this.lastMoveX = -1;
     this.lastMoveY = -1;
+    this.lastCursorPollEmitTs = 0;
     const startResult = this.provider.start({
       onMouseDown: (event) => {
         this.pushEvent({
@@ -474,9 +477,11 @@ class InputTrackingService {
       this.stats = createEmptyStats();
       return startResult;
     }
+    this.startCursorPolling();
     return startResult;
   }
   stop() {
+    this.stopCursorPolling();
     this.provider.stop();
     if (!this.currentSession) {
       return null;
@@ -495,11 +500,59 @@ class InputTrackingService {
     this.currentSession = null;
     this.events = [];
     this.stats = createEmptyStats();
+    this.lastMoveTs = 0;
+    this.lastMoveX = -1;
+    this.lastMoveY = -1;
+    this.lastCursorPollEmitTs = 0;
     return telemetry;
   }
   pushEvent(event) {
     this.events.push(event);
     incrementStats(this.stats, event);
+  }
+  startCursorPolling() {
+    this.stopCursorPolling();
+    const minIntervalMs = 33;
+    const minDeltaPx = 1;
+    const keepAliveIntervalMs = 200;
+    this.cursorPollInterval = setInterval(() => {
+      const session2 = this.currentSession;
+      if (!session2) return;
+      const now = Date.now();
+      const point = screen.getCursorScreenPoint();
+      const maybeFn = screen.dipToScreenPoint;
+      const physicalPoint = typeof maybeFn === "function" ? maybeFn(point) : point;
+      const x = Number(physicalPoint.x ?? 0);
+      const y = Number(physicalPoint.y ?? 0);
+      const dx = x - this.lastMoveX;
+      const dy = y - this.lastMoveY;
+      const distanceSq = dx * dx + dy * dy;
+      const elapsedSinceEmit = now - this.lastMoveTs;
+      const elapsedSincePollEmit = now - this.lastCursorPollEmitTs;
+      if (distanceSq < minDeltaPx * minDeltaPx && elapsedSincePollEmit < keepAliveIntervalMs) {
+        return;
+      }
+      if (elapsedSinceEmit < minIntervalMs && distanceSq < minDeltaPx * minDeltaPx) {
+        return;
+      }
+      this.lastMoveTs = now;
+      this.lastMoveX = x;
+      this.lastMoveY = y;
+      this.lastCursorPollEmitTs = now;
+      this.pushEvent({
+        type: "mouseMoveSampled",
+        ts: now,
+        x,
+        y,
+        cursorType: "default"
+      });
+    }, 16);
+  }
+  stopCursorPolling() {
+    if (this.cursorPollInterval) {
+      clearInterval(this.cursorPollInterval);
+      this.cursorPollInterval = null;
+    }
   }
 }
 class NativeCaptureService {
@@ -560,7 +613,7 @@ class NativeCaptureService {
         id: this.nextId("stop"),
         cmd: "stop_capture",
         payload
-      }, 2e4);
+      }, 12e4);
       if (!response.ok) {
         this.status = "error";
         this.statusMessage = response.error || "Failed to stop native capture";
@@ -721,7 +774,10 @@ ${output.stderr || ""}`;
       this.consumeStdout(chunk);
     });
     child.stderr.setEncoding("utf8");
-    child.stderr.on("data", () => {
+    child.stderr.on("data", (chunk) => {
+      const text = chunk.trim();
+      if (!text) return;
+      console.info("[native-capture][sidecar][stderr]", text);
     });
     child.on("exit", (code, signal) => {
       const message = `Native capture sidecar exited (code=${code ?? "null"}, signal=${signal ?? "null"})`;
@@ -786,6 +842,8 @@ ${output.stderr || ""}`;
     if (!this.process || this.process.killed) {
       throw new Error("Native capture process is not running");
     }
+    const startedAt = Date.now();
+    console.info("[native-capture][main] -> sidecar", { cmd: request.cmd, id: request.id, timeoutMs });
     const serialized = `${JSON.stringify(request)}
 `;
     const promise = new Promise((resolve, reject) => {
@@ -796,7 +854,15 @@ ${output.stderr || ""}`;
       this.pending.set(request.id, { resolve, reject, timeout });
     });
     this.process.stdin.write(serialized);
-    return await promise;
+    const response = await promise;
+    console.info("[native-capture][main] <- sidecar", {
+      cmd: request.cmd,
+      id: request.id,
+      ok: response.ok,
+      elapsedMs: Date.now() - startedAt,
+      error: response.error
+    });
+    return response;
   }
   nextId(prefix) {
     this.sequence += 1;
@@ -865,6 +931,19 @@ function resolveCaptureRegionForDisplay(displayId) {
     y: topLeft.y,
     width: Math.max(1, bottomRight.x - topLeft.x),
     height: Math.max(1, bottomRight.y - topLeft.y)
+  };
+}
+function toEven(value) {
+  const rounded = Math.round(value);
+  return Math.max(2, rounded - rounded % 2);
+}
+function scaleToMatchSourceAspect(requested, source) {
+  const requestedArea = Math.max(1, requested.width * requested.height);
+  const sourceArea = Math.max(1, source.width * source.height);
+  const scale = Math.min(1, Math.sqrt(requestedArea / sourceArea));
+  return {
+    width: toEven(source.width * scale),
+    height: toEven(source.height * scale)
   };
 }
 function getSelectedSourceForDisplayMedia() {
@@ -1316,14 +1395,29 @@ function registerIpcHandlers(createEditorWindow2, createHudOverlayWindow2, creat
     return result;
   });
   ipcMain.handle("native-capture-start", async (_, payload) => {
-    var _a, _b;
+    var _a, _b, _c;
     const packagedFfmpeg = resolvePackagedFfmpegPath();
     const platform = process.platform;
     const sourceDisplayId = ((_a = payload.source) == null ? void 0 : _a.displayId) || (typeof (selectedSource == null ? void 0 : selectedSource.display_id) === "string" ? selectedSource.display_id : void 0);
     const captureRegion = platform === "win32" && ((_b = payload.source) == null ? void 0 : _b.type) === "screen" ? resolveCaptureRegionForDisplay(sourceDisplayId) : void 0;
+    const sourceRegion = ((_c = payload.source) == null ? void 0 : _c.type) === "screen" ? resolveCaptureRegionForDisplay(sourceDisplayId) : void 0;
+    const normalizedVideo = platform === "darwin" && sourceRegion ? {
+      ...payload.video,
+      ...scaleToMatchSourceAspect(
+        {
+          width: payload.video.width,
+          height: payload.video.height
+        },
+        {
+          width: sourceRegion.width,
+          height: sourceRegion.height
+        }
+      )
+    } : payload.video;
     const normalizedPayload = {
       ...payload,
       outputPath: path.isAbsolute(payload.outputPath) ? payload.outputPath : path.join(RECORDINGS_DIR, payload.outputPath),
+      video: normalizedVideo,
       ffmpegPath: payload.ffmpegPath || (fs.existsSync(packagedFfmpeg) ? packagedFfmpeg : void 0),
       captureRegion: platform === "win32" ? payload.captureRegion || captureRegion : void 0
     };
@@ -1503,7 +1597,15 @@ function registerIpcHandlers(createEditorWindow2, createHudOverlayWindow2, creat
     }
   });
   ipcMain.handle("store-native-recording-session", async (_, payload) => {
+    var _a;
     try {
+      console.info("[native-capture][main] store-native-recording-session requested", {
+        screenVideoPath: payload.screenVideoPath,
+        hasMicAudioData: Boolean(payload.micAudioData),
+        hasCameraVideoData: Boolean(payload.cameraVideoData),
+        hasInputTelemetry: Boolean(payload.inputTelemetry),
+        sessionId: typeof ((_a = payload.session) == null ? void 0 : _a.id) === "string" ? payload.session.id : void 0
+      });
       let finalScreenVideoPath = payload.screenVideoPath;
       if (!payload.screenVideoPath.startsWith(RECORDINGS_DIR)) {
         const targetName = `${path.parse(payload.screenVideoPath).name}.mp4`;
@@ -1554,6 +1656,12 @@ function registerIpcHandlers(createEditorWindow2, createHudOverlayWindow2, creat
       currentRecordingSession = session2;
       currentVideoPath = finalScreenVideoPath;
       await deleteFileIfExists(micAudioPath);
+      console.info("[native-capture][main] Native recording session stored in memory", {
+        sessionId: typeof session2.id === "string" ? session2.id : void 0,
+        screenVideoPath: finalScreenVideoPath,
+        cameraVideoPath,
+        inputTelemetryPath
+      });
       return {
         success: true,
         session: session2,

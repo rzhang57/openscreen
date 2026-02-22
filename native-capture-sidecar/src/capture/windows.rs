@@ -56,6 +56,7 @@ pub fn start_capture(start_payload: StartCapturePayload) -> Result<ActiveCapture
         fps: start_payload.video.fps,
         started_at: Instant::now(),
         platform: "win32".to_string(),
+        restore_cursor_on_stop: false,
         child,
     })
 }

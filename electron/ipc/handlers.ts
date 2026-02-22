@@ -83,6 +83,25 @@ function resolveCaptureRegionForDisplay(displayId?: string): { x: number; y: num
   }
 }
 
+function toEven(value: number): number {
+  const rounded = Math.round(value)
+  return Math.max(2, rounded - (rounded % 2))
+}
+
+function scaleToMatchSourceAspect(
+  requested: { width: number; height: number },
+  source: { width: number; height: number }
+): { width: number; height: number } {
+  const requestedArea = Math.max(1, requested.width * requested.height)
+  const sourceArea = Math.max(1, source.width * source.height)
+  const scale = Math.min(1, Math.sqrt(requestedArea / sourceArea))
+
+  return {
+    width: toEven(source.width * scale),
+    height: toEven(source.height * scale),
+  }
+}
+
 export function getSelectedSourceForDisplayMedia(): { id?: string; display_id?: string } | null {
   if (!selectedSource || typeof selectedSource !== 'object') {
     return null
@@ -633,11 +652,30 @@ export function registerIpcHandlers(
     const captureRegion = platform === 'win32' && payload.source?.type === 'screen'
       ? resolveCaptureRegionForDisplay(sourceDisplayId)
       : undefined
+    const sourceRegion = payload.source?.type === 'screen'
+      ? resolveCaptureRegionForDisplay(sourceDisplayId)
+      : undefined
+    const normalizedVideo = platform === 'darwin' && sourceRegion
+      ? {
+          ...payload.video,
+          ...scaleToMatchSourceAspect(
+            {
+              width: payload.video.width,
+              height: payload.video.height,
+            },
+            {
+              width: sourceRegion.width,
+              height: sourceRegion.height,
+            }
+          ),
+        }
+      : payload.video
     const normalizedPayload: NativeCaptureStartPayload = {
       ...payload,
       outputPath: path.isAbsolute(payload.outputPath)
         ? payload.outputPath
         : path.join(RECORDINGS_DIR, payload.outputPath),
+      video: normalizedVideo,
       ffmpegPath: payload.ffmpegPath || (fsSync.existsSync(packagedFfmpeg) ? packagedFfmpeg : undefined),
       captureRegion: platform === 'win32' ? (payload.captureRegion || captureRegion) : undefined,
     }
@@ -867,6 +905,13 @@ export function registerIpcHandlers(
     session: Record<string, unknown>
   }) => {
     try {
+      console.info('[native-capture][main] store-native-recording-session requested', {
+        screenVideoPath: payload.screenVideoPath,
+        hasMicAudioData: Boolean(payload.micAudioData),
+        hasCameraVideoData: Boolean(payload.cameraVideoData),
+        hasInputTelemetry: Boolean(payload.inputTelemetry),
+        sessionId: typeof payload.session?.id === 'string' ? payload.session.id : undefined,
+      })
       let finalScreenVideoPath = payload.screenVideoPath
       if (!payload.screenVideoPath.startsWith(RECORDINGS_DIR)) {
         const targetName = `${path.parse(payload.screenVideoPath).name}.mp4`
@@ -927,6 +972,12 @@ export function registerIpcHandlers(
       currentRecordingSession = session
       currentVideoPath = finalScreenVideoPath
       await deleteFileIfExists(micAudioPath)
+      console.info('[native-capture][main] Native recording session stored in memory', {
+        sessionId: typeof session.id === 'string' ? session.id : undefined,
+        screenVideoPath: finalScreenVideoPath,
+        cameraVideoPath,
+        inputTelemetryPath,
+      })
 
       return {
         success: true,
