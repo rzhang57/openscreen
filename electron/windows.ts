@@ -247,7 +247,12 @@ export function createCameraPreviewWindow(deviceId?: string): BrowserWindow {
   cameraPreviewWindow = win;
   win.once('ready-to-show', () => {
     if (!win.isDestroyed()) {
-      win.showInactive();
+      if (process.platform === 'darwin') {
+        win.show();
+        win.focus();
+      } else {
+        win.showInactive();
+      }
     }
   });
   win.on('closed', () => {

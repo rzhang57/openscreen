@@ -109,8 +109,34 @@ if (platform === "win32") {
     console.warn(`${message} Native capture may fall back to legacy.`);
   }
 } else {
-  // macOS ScreenCaptureKit sidecar does not use ffmpeg; avoid packaging stale binaries.
-  rmSync(binFfmpeg, { force: true });
+  const bundled = resolveBundledFfmpegPath();
+  if (bundled && existsSync(bundled)) {
+    copyFileSync(bundled, binFfmpeg);
+    ensureExecutableIfNeeded(binFfmpeg, platform);
+    console.info(`[native-capture] Using bundled ffmpeg from @ffmpeg-installer/ffmpeg: ${bundled}`);
+  }
+
+  if (!existsSync(binFfmpeg)) {
+    const probe = spawnSync("which", ["ffmpeg"], { cwd: root, encoding: "utf8", shell: false });
+    if (probe.status === 0 && probe.stdout) {
+      const first = probe.stdout.split(/\r?\n/).map((s) => s.trim()).find(Boolean);
+      if (first && existsSync(first)) {
+        copyFileSync(first, binFfmpeg);
+        ensureExecutableIfNeeded(binFfmpeg, platform);
+        console.info(`[native-capture] Using ffmpeg from PATH: ${first}`);
+      }
+    }
+  }
+
+  if (!existsSync(binFfmpeg)) {
+    const message = "[native-capture] ffmpeg not available from @ffmpeg-installer/ffmpeg or PATH on macOS.";
+    if (strictMode) {
+      console.error(`${message} Failing because --strict is enabled.`);
+      process.exit(1);
+    }
+    console.warn(`${message} Native capture microphone muxing may be unavailable.`);
+    rmSync(binFfmpeg, { force: true });
+  }
 }
 
 function shouldBuildSidecar(targetExe, sourceFile) {

@@ -3,7 +3,7 @@ import { ipcMain, desktopCapturer, BrowserWindow, shell, app, dialog, screen, ty
 import fs from 'node:fs/promises'
 import fsSync from 'node:fs'
 import path from 'node:path'
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { RECORDINGS_DIR, VITE_DEV_SERVER_URL, RENDERER_DIST } from '../main'
 import { InputTrackingService } from '../services/inputTrackingService'
@@ -392,9 +392,19 @@ export function registerIpcHandlers(
       : path.join(app.getAppPath(), 'native-capture-sidecar', 'bin', process.platform, process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg')
   )
 
+  const resolveMuxFfmpegPath = () => {
+    const packaged = resolvePackagedFfmpegPath()
+    if (fsSync.existsSync(packaged)) return packaged
+    if (process.platform !== 'darwin') return null
+    const probe = spawnSync('which', ['ffmpeg'], { encoding: 'utf8' })
+    if (probe.status !== 0) return null
+    const candidate = probe.stdout.trim()
+    return candidate && fsSync.existsSync(candidate) ? candidate : null
+  }
+
   const muxAudioIntoVideo = async (videoPath: string, audioPath: string, audioOffsetMs = 0): Promise<{ success: boolean; outputPath?: string; message?: string }> => {
-    const ffmpegPath = resolvePackagedFfmpegPath()
-    if (!fsSync.existsSync(ffmpegPath)) {
+    const ffmpegPath = resolveMuxFfmpegPath()
+    if (!ffmpegPath) {
       return { success: false, message: 'ffmpeg executable not found for native audio muxing' }
     }
 
