@@ -3,6 +3,14 @@ opensource screen recording. built to deliver beautiful, smooth videos quickly. 
 
 <img src="https://github.com/user-attachments/assets/477f39a8-1f50-43c6-b24b-47e8f42045ad" width="700" alt="demo recording">
 
+## installation
+official alpha releases found under [releases](https://github.com/rzhang57/velocity/releases). 
+
+### note: macos
+if prompted with `velocity is damaged and can't be opened. You should move it to the Trash`, run
+
+```xattr -cr /Applications/velocity.app``` in terminal.
+
 ## stack
 - TypeScript
 - Electron
@@ -33,15 +41,7 @@ opensource screen recording. built to deliver beautiful, smooth videos quickly. 
 - custom user imported cursors
 
 ## getting started
-```npm run dev```
-
-## pre-release distributions
-no official releases yet since development is still underway. if you'd like to install it on your computer in its current state, run
-```
-npm run build:win  # windows
-npm run build:mac  # macos
-npm run build:linux # linux
-```
+for development: ```npm run dev```
 
 ## credit/ shoutout
 this repo is a fork of the original project, openscreen, by [siddharthvaddem](https://github.com/siddharthvaddem/openscreen), which served as a strong initial foundation for the project. check it out!
