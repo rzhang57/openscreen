@@ -33,40 +33,39 @@ jobs:
           path: release/**/*.exe
           retention-days: 30
 
-# TODO: enable when mac build is ready
-#  build-macos:
-#    runs-on: macos-latest
-#    steps:
-#      - name: Checkout code
-#        uses: actions/checkout@v3
-#
-#      - name: Setup Node.js
-#        uses: actions/setup-node@v3
-#        with:
-#          node-version: '22'
-#
-#      - name: Setup Python
-#        uses: actions/setup-python@v4
-#        with:
-#          python-version: '3.11'
-#
-#      - name: Install dependencies
-#        run: npm ci
-#
-#      - name: Install app dependencies
-#        run: npx electron-builder install-app-deps
-#
-#      - name: Build macOS app
-#        run: npm run build:mac
-#        env:
-#          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-#
-#      - name: Upload macOS build
-#        uses: actions/upload-artifact@v4
-#        with:
-#          name: macos-installer
-#          path: release/**/*.dmg
-#          retention-days: 30
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install app dependencies
+        run: npx electron-builder install-app-deps
+
+      - name: Build macOS app
+        run: npm run build:mac
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload macOS build
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-installer
+          path: release/**/*.dmg
+          retention-days: 30
 
 # TODO: enable when linux build is ready
 #  build-linux:

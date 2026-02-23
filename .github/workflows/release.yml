@@ -28,32 +28,31 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           EP_DRAFT: true
 
-# TODO: enable when mac build is ready
-#  build-macos:
-#    runs-on: macos-latest
-#    steps:
-#      - uses: actions/checkout@v4
-#
-#      - uses: actions/setup-node@v4
-#        with:
-#          node-version: '22'
-#          cache: 'npm'
-#
-#      - uses: actions/setup-python@v5
-#        with:
-#          python-version: '3.11'
-#
-#      - name: Install dependencies
-#        run: npm ci
-#
-#      - name: Install app dependencies
-#        run: npx electron-builder install-app-deps
-#
-#      - name: Build & publish macOS
-#        run: npm run build:mac
-#        env:
-#          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-#          EP_DRAFT: true
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install app dependencies
+        run: npx electron-builder install-app-deps
+
+      - name: Build & publish macOS (pre-release)
+        run: npm run build:mac
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EP_PRE_RELEASE: true
 
 # TODO: enable when linux build is ready
 #  build-linux:
